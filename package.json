@@ -4,7 +4,8 @@
   "description": "API to fetch SL departures from Trafiklab",
   "main": "api/server.js",
   "scripts": {
-    "start": "node api/server.js"
+    "start": "node api/start.js",
+    "test": "jest --silent"
   },
   "keywords": [
     "trafiklab",
@@ -18,5 +19,23 @@
     "axios": "^1.7.2",
     "dotenv": "^16.4.5",
     "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^7.1.0"
+  },
+  "jest": {
+    "roots": [
+      "<rootDir>/api"
+    ],
+    "testMatch": [
+      "**/__tests__/**/*.test.js"
+    ],
+    "collectCoverage": true,
+    "coverageDirectory": "coverage/api",
+    "coverageReporters": [
+      "text",
+      "lcov"
+    ]
   }
-} 
+}
