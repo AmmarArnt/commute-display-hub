@@ -1,0 +1,22 @@
+{
+  "name": "sl-departures-api",
+  "version": "1.0.0",
+  "description": "API to fetch SL departures from Trafiklab",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "trafiklab",
+    "sl",
+    "api",
+    "departures"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.7.2",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  }
+} 
