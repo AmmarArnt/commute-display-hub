@@ -4,9 +4,8 @@ const font = require('./font'); // Use the separate font file
 function calculateTextWidth(text, charSpacing = 1) {
     let width = 0;
     if (!text) return 0;
-    for (let i = 0; i < text.length; i++) {
-        const char = text[i];
-        // Use the imported 'font', not the old 'tinyFont'
+    for (const char of text) {
+        // Use the imported 'font'
         const charData = font[char] || font[' ']; 
         if (charData && charData[0]) { // Check row 0 exists for width
             width += charData[0].length + charSpacing;
@@ -40,8 +39,7 @@ class MatrixController {
     drawText(text, xOffset = 0, yOffset = 0, charSpacing = 1) {
         let currentX = xOffset;
         let totalWidth = 0;
-        for (let i = 0; i < text.length; i++) {
-            const char = text[i];
+        for (const char of text) {
             // Use the imported 'font'
             const charData = font[char] || font[' ']; 
 
@@ -70,8 +68,7 @@ class MatrixController {
         let currentX = 0; // Relative to the start of the full text string
         let totalWidth = 0;
 
-        for (let i = 0; i < text.length; i++) {
-            const char = text[i];
+        for (const char of text) {
             // Use the imported 'font'
             const charData = font[char] || font[' '];
             let charWidth = 0;
@@ -102,8 +99,15 @@ class MatrixController {
         return this.matrixState;
     }
     
-    sync() { }
-    shutdown() { }
+    // No hardware sync needed for console
+    sync() { 
+        // This controller simulates display in console; no hardware sync required.
+    }
+    
+    // No specific shutdown needed for console
+    shutdown() { 
+        // This controller is for console simulation; no hardware resources to shut down.
+    }
 }
 
 // Export the class and potentially the helper if needed elsewhere

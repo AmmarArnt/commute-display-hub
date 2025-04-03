@@ -57,14 +57,15 @@ function isActiveHour() {
 function calculateTextWidthInternal(text, font) {
     let width = 0;
     if (!text) return 0;
-    for (let i = 0; i < text.length; i++) {
-        const char = text[i];
+    for (const char of text) {
         const charData = font[char] || font[' '];
         if (charData) {
-            width += charData.length + CHAR_SPACING;
+            const charSpacing = 1;
+            const charWidth = charData[0]?.length || 0;
+            width += charWidth + charSpacing;
         }
     }
-    return width > 0 ? width - CHAR_SPACING : 0;
+    return width > 0 ? width - 1 : 0;
 }
 
 // Simplified parser to get only the time string
@@ -87,6 +88,75 @@ function parseTimeFromDepartureString(str) {
     // All other formats are considered invalid and return null
     
     return time;
+}
+
+// Processes the raw API response
+function processFetchedDepartures(rawDepartures, previousDepartures) {
+    if (rawDepartures && rawDepartures.length > 0) {
+        const newDepartures = rawDepartures.slice(0, 2);
+        console.log(`Processed ${newDepartures.length} departures.`);
+        const dataChanged = JSON.stringify(previousDepartures) !== JSON.stringify(newDepartures);
+        return { departures: newDepartures, changed: dataChanged };
+    } else {
+        console.log('No departures fetched or returned.');
+        return { departures: [], changed: previousDepartures.length > 0 }; // Data changed if it disappeared
+    }
+}
+
+// Helper function to handle display when data has disappeared
+function handleDataDisappeared() {
+    console.log('Data disappeared, clearing display and stopping scroll.');
+    stopScrolling();
+    latestDepartures = []; // Clear state
+    currentDisplayIndex = 0;
+    currentTextToScroll = '';
+    if (matrixController) {
+        matrixController.clear();
+        if (config.displayTarget === 'console') renderMatrixToConsole(matrixController.getMatrixState());
+        else matrixController.sync?.();
+    }
+}
+
+// Helper function to handle display when new/changed data is available
+function handleNewOrChangedData(departures) {
+    console.log('New data available, starting/restarting scroll cycle.');
+    latestDepartures = departures; // Update state
+    currentDisplayIndex = 0;
+    startOrUpdateScrollCycle(); 
+}
+
+// Helper function to handle the case where there was no data and still isn't
+function handleNoData() {
+     console.log('No data initially and still no data.');
+     // Ensure display is clear
+      if (!matrixController) return; // Ensure controller exists
+     matrixController.clear();
+     if (config.displayTarget === 'console') renderMatrixToConsole(matrixController.getMatrixState());
+     else matrixController.sync?.();
+}
+
+// Updates internal state and triggers display/scroll updates based on processed data
+function updateStateAndDisplay(newState) {
+    const { departures, changed } = newState;
+
+    if (!changed) {
+         console.log('Data has not changed.');
+         return; // No change, do nothing
+    }
+
+    console.log('Data change detected.');
+    const hadDataBefore = latestDepartures.length > 0;
+    const hasDataNow = departures.length > 0;
+
+    if (hasDataNow) {
+        handleNewOrChangedData(departures);
+    } else if (hadDataBefore) {
+        // Data disappeared
+        handleDataDisappeared();
+    } else {
+        // Had no data, still no data (but 'changed' was true, e.g., from initial undefined)
+       handleNoData();
+    }
 }
 
 // Updates display with the time string at currentDisplayIndex
@@ -142,6 +212,7 @@ function switchDisplay() {
     }
 }
 
+// Fetches data from API, processes it, and updates state/display
 async function fetchData() {
     if (!matrixController) {
         console.log('fetchData called before controller initialization.');
@@ -150,14 +221,8 @@ async function fetchData() {
     if (!isActiveHour()) {
         console.log('Outside active hours. Skipping data fetch.');
         if (latestDepartures.length > 0) {
-            // Clear display and stop scrolling if active hours end
-            stopScrolling();
-            latestDepartures = [];
-            currentDisplayIndex = 0;
-            currentTextToScroll = '';
-            matrixController.clear();
-            if (config.displayTarget === 'console') renderMatrixToConsole(matrixController.getMatrixState());
-            else matrixController.sync?.();
+            // Treat ending active hours as data disappearing
+            updateStateAndDisplay({ departures: [], changed: true }); 
         }
         return;
     }
@@ -165,39 +230,14 @@ async function fetchData() {
     console.log('Fetching departures...');
     try {
         const rawDepartures = await fetchDepartures(config.apiUrl);
-        const previousDepartures = [...latestDepartures]; // Store previous full strings
+        const previousDepartures = [...latestDepartures]; // Get current state before processing
 
-        if (rawDepartures && rawDepartures.length > 0) {
-            // Keep only the first two full departure strings
-            const newDepartures = rawDepartures.slice(0, 2);
-            
-            console.log(`Processed ${newDepartures.length} departures.`);
-            const dataChanged = JSON.stringify(previousDepartures) !== JSON.stringify(newDepartures);
-            
-            if (dataChanged) {
-                console.log('New data received or data changed.');
-                latestDepartures = newDepartures;
-                // Reset to the first departure and start its scroll cycle
-                currentDisplayIndex = 0; 
-                startOrUpdateScrollCycle(); 
-            }
-             // If data is the same, do nothing, let the current scroll cycle continue
+        const processingResult = processFetchedDepartures(rawDepartures, previousDepartures);
+        updateStateAndDisplay(processingResult);
 
-        } else {
-            console.log('No departures fetched or returned.');
-            if (latestDepartures.length > 0) {
-                 // Data disappeared, clear display and stop
-                stopScrolling();
-                latestDepartures = [];
-                currentDisplayIndex = 0;
-                currentTextToScroll = '';
-                matrixController.clear();
-                if (config.displayTarget === 'console') renderMatrixToConsole(matrixController.getMatrixState());
-                 else matrixController.sync?.();
-            }
-        }
     } catch (error) {
         console.error('Error in fetchData:', error);
+        // Consider adding logic here to display an error state on the matrix
     }
 }
 

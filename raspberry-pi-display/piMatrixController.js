@@ -67,7 +67,6 @@ class PiMatrixController {
         if (!this.matrix) return;
         // Basic bounds check (library might also do this)
         if (x >= 0 && x < this.width && y >= 0 && y < this.height) {
-             // console.log(`[PiMatrixController] Setting pixel (${x}, ${y})`); // Very verbose
             this.matrix.setPixel(x, y, r, g, b);
             // No sync here - typically sync after drawing a full frame
         }
@@ -79,8 +78,8 @@ class PiMatrixController {
         let currentX = xOffset;
         let totalWidth = 0;
 
-        for (let i = 0; i < text.length; i++) {
-            const char = text[i];
+        // Use for...of loop to iterate over characters
+        for (const char of text) {
             const charData = font[char] || font[' ']; // Use space for unknown chars
             
             if (charData) {
@@ -107,8 +106,8 @@ class PiMatrixController {
         let currentX = 0; // Start drawing relative to the beginning of the text
         let totalWidth = 0;
 
-        for (let i = 0; i < text.length; i++) {
-            const char = text[i];
+        // Use for...of loop here as well
+        for (const char of text) {
             const charData = font[char] || font[' '];
             let charWidth = 0;
 
@@ -141,7 +140,6 @@ class PiMatrixController {
     // Required by rpi-led-matrix to push buffer changes to the hardware
     sync() {
         if (!this.matrix) return;
-        // console.log('[PiMatrixController] Syncing matrix'); // Can be verbose
         this.matrix.sync();
     }
 
