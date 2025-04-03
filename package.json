@@ -16,9 +16,10 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "axios": "^1.7.2",
-    "dotenv": "^16.4.5",
-    "express": "^4.19.2"
+    "axios": "^1.8.4",
+    "dotenv": "^16.4.7",
+    "express": "^4.19.2",
+    "rpi-led-matrix": "^1.15.0"
   },
   "devDependencies": {
     "jest": "^29.7.0",
@@ -26,13 +27,13 @@
   },
   "jest": {
     "roots": [
-      "<rootDir>/api"
+      "<rootDir>"
     ],
     "testMatch": [
       "**/__tests__/**/*.test.js"
     ],
     "collectCoverage": true,
-    "coverageDirectory": "coverage/api",
+    "coverageDirectory": "coverage",
     "coverageReporters": [
       "text",
       "lcov"
