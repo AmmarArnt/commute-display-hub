@@ -163,10 +163,6 @@ function switchDisplay() {
 }
 
 async function fetchData() {
-    if (!matrixController) {
-        console.log('fetchData called before controller initialization.');
-        return;
-    }
     if (!isActiveHour()) {
         console.log('Outside active hours. Skipping data fetch.');
         if (latestDepartures.length > 0) {
