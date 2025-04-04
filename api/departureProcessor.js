@@ -12,7 +12,8 @@ function calculateTimeDiffInMinutes(expectedTimeStr) {
     const diffMs = expectedTime - now;
     // Ignore departures less than 30 seconds away or passed
     if (diffMs < 30000) return null;
-    return Math.round(diffMs / 60000);
+    // Calculate minutes using floor (round down)
+    return Math.floor(diffMs / 60000);
 }
 
 /**
@@ -36,7 +37,9 @@ function processDepartures(rawDepartures, destinationName, departuresToShow) {
             const timeLeftMinutes = calculateTimeDiffInMinutes(expectedTime);
             if (timeLeftMinutes === null) return null;
 
+            // Always format as relative time (or Nu)
             const displayTime = timeLeftMinutes === 0 ? 'Nu' : `${timeLeftMinutes} min`;
+
             return {
                 journeyId: dep.journey?.id,
                 timeLeft: timeLeftMinutes,
@@ -64,7 +67,5 @@ function processDepartures(rawDepartures, destinationName, departuresToShow) {
 }
 
 module.exports = {
-    processDepartures,
-    // Export helper if needed for direct testing, otherwise keep it internal
-    // calculateTimeDiffInMinutes
+    processDepartures
 }; 
