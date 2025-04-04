@@ -107,12 +107,12 @@ function handleFetchedDataUpdate(fetchedDepartures) {
     const newDataString = JSON.stringify(fetchedDepartures);
     const isIdentical = newDataString === previousDataString;
 
-    if (isIdentical && !newDataWaiting && latestDepartures.length > 0) { 
-        console.log('Fetched data is identical to current data (and data exists). No update needed.');
+    if (isIdentical && !newDataWaiting) { 
+        console.log(`Fetched data is identical to current data ('${newDataString}'). No update needed.`);
         return;
     }
 
-    console.log(`Fetched data differs, is empty, or update was pending. Buffering data: ${newDataString}`);
+    console.log(`Fetched data differs ('${newDataString}' vs '${previousDataString}') or update was pending. Buffering data.`);
     latestFetchedData = fetchedDepartures;
     newDataWaiting = true;
 
