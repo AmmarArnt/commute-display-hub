@@ -14,7 +14,7 @@ from luma.core.render import canvas
 from PIL import ImageFont
 
 # --- Constants ---
-SCROLL_SPEED_PPS = 25
+SCROLL_SPEED_PPS = 15 # SLOWED DOWN SCROLL SPEED
 END_PAUSE_S = 10
 SELECT_TIMEOUT = 0.02
 # Common path for DejaVu Sans font on Raspberry Pi OS/Debian
@@ -124,6 +124,7 @@ def main():
                     last_update_time = time_now
                     state = "scrolling"
                     pause_start_time = 0
+                    pause_draw_x = 0
                 else:
                     # Handle empty line: clear display
                     print("Received empty line, clearing display.")
@@ -141,28 +142,29 @@ def main():
                 current_x_offset += SCROLL_SPEED_PPS * time_delta
                 last_update_time = time_now
 
-                end_pause_offset = float(message_pixel_width - time_string_pixel_width)
+                end_pause_trigger_offset = float(message_pixel_width - device.width)
 
                 # Check if we should pause
-                if time_string and message_pixel_width > device.width and current_x_offset >= end_pause_offset:
+                if time_string and message_pixel_width > device.width and current_x_offset >= end_pause_trigger_offset:
                     print(f"Reached end position (Offset: {current_x_offset:.1f}). Pausing...")
-                    current_x_offset = end_pause_offset
+                    pause_draw_x = device.width - message_pixel_width
                     state = "paused"
                     pause_start_time = time_now
 
-                reset_scroll_threshold = message_pixel_width + device.width
+                reset_scroll_threshold = message_pixel_width
                 if current_x_offset > reset_scroll_threshold:
+                    print("Message scrolled fully off. Resetting (should pause normally).")
                     current_x_offset = 0.0
 
             elif state == "paused":
-                end_pause_offset = float(message_pixel_width - time_string_pixel_width)
-                current_x_offset = end_pause_offset
+                draw_x = pause_draw_x
 
                 if (time_now - pause_start_time) >= END_PAUSE_S:
-                    print("Pause finished. Resetting scroll.")
-                    current_x_offset = 0.0
-                    state = "scrolling"
-                    last_update_time = time_now
+                    print("Pause finished. Entering idle state.")
+                    state = "idle_after_pause"
+
+            elif state == "idle_after_pause":
+                draw_x = pause_draw_x
 
             # --- Draw Frame ---
             draw_x = device.width - int(current_x_offset)
