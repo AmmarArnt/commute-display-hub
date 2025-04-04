@@ -1,8 +1,9 @@
 const { loadAndValidateConfig } = require('./config');
 const { fetchDepartures } = require('./apiClient');
 const { MatrixController: ConsoleMatrixController, calculateTextWidth } = require('./matrixController');
-const { PiMatrixController } = require('./piMatrixController');
 const { renderMatrixToConsole } = require('./consoleRenderer');
+const { spawn } = require('child_process');
+const path = require('path');
 const font = require('./font');
 
 // --- Configuration & State ---
@@ -14,11 +15,17 @@ try {
     process.exit(1);
 }
 
-// --- Matrix Controller Factory ---
+// --- Child Process State ---
+let pythonProcess = null;
+let pythonRestartTimeout = null;
+const PYTHON_SCRIPT_PATH = path.join(__dirname, 'python_matrix_driver.py');
+
+// --- Matrix Controller Factory (Modified) ---
 function createMatrixController(targetConfig) {
     if (targetConfig.displayTarget === 'pi') {
-        console.log('Using Pi Hardware Matrix Controller.');
-        return new PiMatrixController(targetConfig.matrixWidth, targetConfig.matrixHeight);
+        console.log('Using Python driver for Pi Hardware.');
+        startPythonDriver(); 
+        return null;
     } else {
         console.log('Using Console Matrix Controller.');
         return new ConsoleMatrixController(targetConfig.matrixWidth, targetConfig.matrixHeight);
@@ -26,21 +33,13 @@ function createMatrixController(targetConfig) {
 }
 
 let matrixController = null;
-let latestDepartures = []; // Stores full departure strings
-let currentDisplayIndex = 0;   // 0 or 1
-
-// Horizontal Scroll State
-let scrollIntervalId = null;
-let currentScrollX = 0;
-let currentTextToScroll = '';
-let currentTextWidth = 0;
-let scrollState = 'idle'; // 'scrolling', 'paused', 'idle', 'switching'
-const SCROLL_SPEED_MS = 150; // Milliseconds per pixel scrolled
-const END_PAUSE_DURATION_MS = 10000; // 10 seconds pause at the end
+let latestDepartures = [];
+let currentDisplayIndex = 0;
 
 // Fetch/Switch State
 let dataFetchIntervalId = null;
-let endPauseTimeoutId = null; // Timeout ID for the 10-second pause
+let switchDisplayIntervalId = null;
+const SWITCH_INTERVAL_MS = 15000;
 
 // --- Helper Functions ---
 function isActiveHour() {
@@ -53,44 +52,24 @@ function isActiveHour() {
     }
 }
 
-// Keep width calculation in case needed later, but not used currently for layout
-function calculateTextWidthInternal(text, font) {
-    let width = 0;
-    if (!text) return 0;
-    for (const char of text) {
-        const charData = font[char] || font[' '];
-        if (charData) {
-            const charSpacing = 1;
-            const charWidth = charData[0]?.length || 0;
-            width += charWidth + charSpacing;
-        }
-    }
-    return width > 0 ? width - 1 : 0;
-}
-
-// Simplified parser to get only the time string
 function parseTimeFromDepartureString(str) {
     if (!str || typeof str !== 'string') return null;
     
     const parts = str.trim().split(/\s+/);
     if (parts.length < 2) return null;
 
-    let time = null; // Default to null for invalid formats
+    let time = null;
     
-    // Handle "X min" format (e.g., "5 min")
     if (parts.length >= 3 && parts[parts.length-1].toLowerCase() === 'min' && !isNaN(parseInt(parts[parts.length - 2]))) {
         time = parts.slice(parts.length - 2).join(' ');
     } 
-    // Handle "Nu" format
     else if (parts.length >= 2 && parts[parts.length - 1].toLowerCase() === 'nu') {
         time = 'Nu';
     }
-    // All other formats are considered invalid and return null
     
     return time;
 }
 
-// Processes the raw API response
 function processFetchedDepartures(rawDepartures, previousDepartures) {
     if (rawDepartures && rawDepartures.length > 0) {
         const newDepartures = rawDepartures.slice(0, 2);
@@ -99,49 +78,44 @@ function processFetchedDepartures(rawDepartures, previousDepartures) {
         return { departures: newDepartures, changed: dataChanged };
     } else {
         console.log('No departures fetched or returned.');
-        return { departures: [], changed: previousDepartures.length > 0 }; // Data changed if it disappeared
+        return { departures: [], changed: previousDepartures.length > 0 };
     }
 }
 
-// Helper function to handle display when data has disappeared
 function handleDataDisappeared() {
-    console.log('Data disappeared, clearing display and stopping scroll.');
-    stopScrolling();
-    latestDepartures = []; // Clear state
+    console.log('Data disappeared, clearing display and stopping switch timer.');
+    stopDisplaySwitchTimer();
+    latestDepartures = [];
     currentDisplayIndex = 0;
-    currentTextToScroll = '';
-    if (matrixController) {
-        matrixController.clear();
-        if (config.displayTarget === 'console') renderMatrixToConsole(matrixController.getMatrixState());
-        else matrixController.sync?.();
+    sendToPythonDriver("");
+}
+
+function handleNewOrChangedData(departures) {
+    console.log('New data available, updating display.');
+    latestDepartures = departures;
+    currentDisplayIndex = 0;
+    updateDisplay();
+    if (latestDepartures.length > 1) {
+        startDisplaySwitchTimer();
+    } else {
+        stopDisplaySwitchTimer();
     }
 }
 
-// Helper function to handle display when new/changed data is available
-function handleNewOrChangedData(departures) {
-    console.log('New data available, starting/restarting scroll cycle.');
-    latestDepartures = departures; // Update state
-    currentDisplayIndex = 0;
-    startOrUpdateScrollCycle(); 
-}
-
-// Helper function to handle the case where there was no data and still isn't
 function handleNoData() {
-     console.log('No data initially and still no data.');
-     // Ensure display is clear
-      if (!matrixController) return; // Ensure controller exists
-     matrixController.clear();
-     if (config.displayTarget === 'console') renderMatrixToConsole(matrixController.getMatrixState());
-     else matrixController.sync?.();
+     console.log('No data, ensuring display is clear.');
+     latestDepartures = [];
+     currentDisplayIndex = 0;
+     stopDisplaySwitchTimer();
+     sendToPythonDriver("");
 }
 
-// Updates internal state and triggers display/scroll updates based on processed data
 function updateStateAndDisplay(newState) {
     const { departures, changed } = newState;
 
     if (!changed) {
          console.log('Data has not changed.');
-         return; // No change, do nothing
+         return;
     }
 
     console.log('Data change detected.');
@@ -151,68 +125,43 @@ function updateStateAndDisplay(newState) {
     if (hasDataNow) {
         handleNewOrChangedData(departures);
     } else if (hadDataBefore) {
-        // Data disappeared
         handleDataDisappeared();
     } else {
-        // Had no data, still no data (but 'changed' was true, e.g., from initial undefined)
        handleNoData();
     }
 }
 
-// Updates display with the time string at currentDisplayIndex
 function updateDisplay() {
-    if (!matrixController) {
-        console.log('updateDisplay called before controller initialization.');
-        return;
-    }
-
-    matrixController.clear();
-
-    let timeToDisplay = '';
-    if (latestDepartures.length > currentDisplayIndex) {
-        timeToDisplay = latestDepartures[currentDisplayIndex];
-    }
-
-    if (timeToDisplay) {
-        matrixController.drawText(timeToDisplay, 1, 0, font);
-    }
-    
-    // Only render to console if using the console target
     if (config.displayTarget === 'console') {
-        console.clear(); 
+        if (!matrixController) matrixController = new ConsoleMatrixController(config.matrixWidth, config.matrixHeight);
+        matrixController.clear();
+        let textToDisplay = latestDepartures[currentDisplayIndex] || "";
+        const textWidth = calculateTextWidth(textToDisplay);
+        const xPos = Math.max(0, Math.floor((config.matrixWidth - textWidth) / 2));
+        matrixController.drawText?.(textToDisplay, xPos, 1);
+        console.clear();
         console.log(`Display Target: ${config.displayTarget}`);
-        console.log(`Displaying Departure ${currentDisplayIndex + 1}/${latestDepartures.length}: ${timeToDisplay || '--'}`);
+        console.log(`Displaying Departure ${currentDisplayIndex + 1}/${latestDepartures.length}: ${textToDisplay || '--'}`);
         renderMatrixToConsole(matrixController.getMatrixState());
+    } else if (config.displayTarget === 'pi') {
+        let textToSend = latestDepartures[currentDisplayIndex] || "";
+        console.log(`[Pi] Sending Departure ${currentDisplayIndex + 1}/${latestDepartures.length}: ${textToSend || '--'} to Python Driver`);
+        sendToPythonDriver(textToSend); 
     } else {
-        // For Pi hardware, maybe log less, or the Pi controller handles its own output/sync
-        console.log(`[Pi] Displaying Departure ${currentDisplayIndex + 1}/${latestDepartures.length}: ${timeToDisplay || '--'}`);
-        // If PiMatrixController needs an explicit update call:
-        // matrixController.sync?.(); 
+         console.log(`Display Target: ${config.displayTarget} - No display action.`);
     }
 }
 
-// Switches to the next departure index and updates display
 function switchDisplay() {
-    if (!matrixController) {
-        console.log('switchDisplay called before controller initialization.');
+    if (latestDepartures.length <= 1) {
+        console.log('Less than 2 departures, not switching.');
         return;
     }
-    if (latestDepartures.length > 1) {
-        currentDisplayIndex = (currentDisplayIndex + 1) % latestDepartures.length;
-        console.log(`Switching display to index ${currentDisplayIndex}`);
-        updateDisplay();
-    } else {
-        // If we have 1 or fewer departures, stop the switch timer
-        stopDisplaySwitchTimer();
-        // And ensure we're showing the first (or empty) display
-        if (currentDisplayIndex !== 0) {
-            currentDisplayIndex = 0;
-            updateDisplay();
-        }
-    }
+    currentDisplayIndex = (currentDisplayIndex + 1) % latestDepartures.length;
+    console.log(`Switching display to index ${currentDisplayIndex}`);
+    updateDisplay();
 }
 
-// Fetches data from API, processes it, and updates state/display
 async function fetchData() {
     if (!matrixController) {
         console.log('fetchData called before controller initialization.');
@@ -221,7 +170,6 @@ async function fetchData() {
     if (!isActiveHour()) {
         console.log('Outside active hours. Skipping data fetch.');
         if (latestDepartures.length > 0) {
-            // Treat ending active hours as data disappearing
             updateStateAndDisplay({ departures: [], changed: true }); 
         }
         return;
@@ -230,127 +178,23 @@ async function fetchData() {
     console.log('Fetching departures...');
     try {
         const rawDepartures = await fetchDepartures(config.apiUrl);
-        const previousDepartures = [...latestDepartures]; // Get current state before processing
+        const previousDepartures = [...latestDepartures];
 
         const processingResult = processFetchedDepartures(rawDepartures, previousDepartures);
         updateStateAndDisplay(processingResult);
 
     } catch (error) {
         console.error('Error in fetchData:', error);
-        // Consider adding logic here to display an error state on the matrix
     }
 }
 
-// --- Scrolling Logic ---
-
-function stopScrolling() {
-    console.log('Stopping scroll cycle.');
-    if (scrollIntervalId) {
-        clearInterval(scrollIntervalId);
-        scrollIntervalId = null;
-    }
-    if (endPauseTimeoutId) {
-        clearTimeout(endPauseTimeoutId);
-        endPauseTimeoutId = null;
-    }
-    scrollState = 'idle';
-}
-
-// Starts or restarts the scrolling cycle for the currentDisplayIndex
-function startOrUpdateScrollCycle() {
-    stopScrolling(); // Stop any previous cycle
-    if (!matrixController) return;
-    if (latestDepartures.length === 0) {
-        console.log('No departures to display.');
-        matrixController.clear();
-        if (config.displayTarget === 'console') renderMatrixToConsole(matrixController.getMatrixState());
-        else matrixController.sync?.();
-        return;
-    }
-    
-    currentTextToScroll = latestDepartures[currentDisplayIndex];
-    // Calculate the total width of the text using the helper
-    currentTextWidth = calculateTextWidth(currentTextToScroll); 
-    currentScrollX = 0;
-    
-    console.log(`Starting scroll for: "${currentTextToScroll}" (Width: ${currentTextWidth})`);
-
-    // Determine if scrolling is needed
-    if (currentTextWidth > config.matrixWidth) {
-        scrollState = 'scrolling';
-        // Draw initial frame (text starting at the right edge)
-        matrixController.clear();
-        matrixController.drawScrollingText?.(currentTextToScroll, currentScrollX, 1);
-        if (config.displayTarget === 'console') renderMatrixToConsole(matrixController.getMatrixState());
-        else matrixController.sync?.();
-        // Start the scroll interval
-        scrollIntervalId = setInterval(scrollStep, SCROLL_SPEED_MS);
-    } else {
-        // Text fits - Display statically (left-aligned for now) and go straight to pause
-        scrollState = 'paused';
-        console.log('Text fits, displaying statically and pausing.');
-        matrixController.clear();
-        // Use drawText for non-scrolling text at a fixed position (e.g., x=1)
-        matrixController.drawText?.(currentTextToScroll, 1, 1); // Using drawText, fixed position
-        if (config.displayTarget === 'console') renderMatrixToConsole(matrixController.getMatrixState());
-        else matrixController.sync?.();
-        // Start the end pause directly
-        endPauseTimeoutId = setTimeout(switchToNextDeparture, END_PAUSE_DURATION_MS);
-    }
-}
-
-// Called by the interval to advance the scroll
-function scrollStep() {
-    if (!matrixController || scrollState !== 'scrolling') return;
-
-    currentScrollX++;
-
-    // Calculate the stopping point: when the end of the text aligns with the right edge
-    const scrollStopOffset = Math.max(0, currentTextWidth - config.matrixWidth);
-
-    // Draw the current frame
-    matrixController.clear();
-    matrixController.drawScrollingText?.(currentTextToScroll, currentScrollX, 1); 
-    if (config.displayTarget === 'console') renderMatrixToConsole(matrixController.getMatrixState());
-    else matrixController.sync?.();
-
-    // Check if we have reached the final position
-    if (currentScrollX >= scrollStopOffset) {
-        console.log(`Scroll reached end position (Offset: ${currentScrollX}). Pausing...`);
-        stopScrolling(); // Stops the interval
-        
-        // --- Pause Logic --- 
-        // The last draw happened just before this check, so the frame is correct.
-        scrollState = 'paused';
-        console.log(`Pausing on last frame for ${END_PAUSE_DURATION_MS}ms...`);
-        endPauseTimeoutId = setTimeout(switchToNextDeparture, END_PAUSE_DURATION_MS);
-    }
-}
-
-// Called after the 10-second pause
-function switchToNextDeparture() {
-    if (!matrixController) return;
-    endPauseTimeoutId = null; // Clear timeout id
-    
-    // Only switch if there are multiple departures
-    if (latestDepartures.length > 1) {
-        currentDisplayIndex = (currentDisplayIndex + 1) % latestDepartures.length;
-        console.log(`Switching to departure index ${currentDisplayIndex}`);
-        scrollState = 'switching'; 
-        startOrUpdateScrollCycle(); // Start scrolling the next item
-    } else {
-        // If only one departure, just restart its scroll cycle
-        console.log('Only one departure, restarting scroll cycle.');
-        startOrUpdateScrollCycle();
-    }
-}
-
-// --- Interval Management ---
 function startDataFetching() {
     stopDataFetching();
     console.log(`Starting data fetching interval every ${config.pollingIntervalMs}ms.`);
     if (isActiveHour()) {
-        fetchData(); // Initial fetch if active
+        fetchData();
+    } else {
+        handleNoData();
     }
     dataFetchIntervalId = setInterval(fetchData, config.pollingIntervalMs);
 }
@@ -363,18 +207,94 @@ function stopDataFetching() {
     }
 }
 
-// Wrapper for stopScrolling for cleanup
-function stopDisplaySwitchTimer() {
-    stopScrolling();
+function startDisplaySwitchTimer() {
+    stopDisplaySwitchTimer();
+    if (latestDepartures.length > 1) {
+        console.log(`Starting display switch timer (${SWITCH_INTERVAL_MS}ms).`);
+        switchDisplayIntervalId = setInterval(switchDisplay, SWITCH_INTERVAL_MS);
+    }
 }
 
-// --- Main Execution Logic --- 
-function startApp() {
-    console.log('Starting Scrolling Raspberry Pi Display Module...');
-    matrixController = createMatrixController(config);
-    startDataFetching(); // Starts fetching and implicitly the first scroll cycle via fetchData
+function stopDisplaySwitchTimer() {
+    if (switchDisplayIntervalId) {
+        clearInterval(switchDisplayIntervalId);
+        switchDisplayIntervalId = null;
+        console.log('Stopped display switch timer.');
+    }
+}
 
-    // Graceful shutdown handlers 
+function startPythonDriver() {
+    if (pythonProcess) {
+        console.log('Python driver already running.');
+        return;
+    }
+    if (pythonRestartTimeout) {
+        clearTimeout(pythonRestartTimeout);
+        pythonRestartTimeout = null;
+    }
+
+    console.log(`Spawning Python driver: sudo python3 ${PYTHON_SCRIPT_PATH}`);
+    pythonProcess = spawn('sudo', ['python3', '-u', PYTHON_SCRIPT_PATH], {
+        stdio: ['pipe', 'pipe', 'pipe']
+    });
+
+    pythonProcess.stdout.on('data', (data) => {
+        process.stdout.write(`[PythonDriver] ${data}`);
+    });
+
+    pythonProcess.stderr.on('data', (data) => {
+        process.stderr.write(`[PythonDriver ERR] ${data}`);
+    });
+
+    pythonProcess.on('close', (code) => {
+        console.error(`[PythonDriver] Exited with code ${code}`);
+        pythonProcess = null;
+        if (!pythonRestartTimeout) { 
+            console.log('Scheduling Python driver restart in 5s...');
+            pythonRestartTimeout = setTimeout(startPythonDriver, 5000);
+        }
+    });
+
+    pythonProcess.on('error', (err) => {
+        console.error('[PythonDriver] Failed to start process:', err);
+        pythonProcess = null;
+        if (!pythonRestartTimeout) {
+             console.log('Scheduling Python driver restart in 5s after error...');
+            pythonRestartTimeout = setTimeout(startPythonDriver, 5000);
+        }
+    });
+}
+
+function sendToPythonDriver(message) {
+    if (config.displayTarget !== 'pi') return;
+
+    if (pythonProcess && pythonProcess.stdin && !pythonProcess.stdin.destroyed) {
+        console.log(`[Node->Py] Sending: ${message}`);
+        pythonProcess.stdin.write(message + '\n', (err) => {
+            if (err) {
+                console.error('[Node->Py] Error writing to python stdin:', err);
+                console.log('Attempting to restart Python driver due to write error...');
+                if(pythonProcess) pythonProcess.kill();
+                pythonProcess = null;
+                 if (!pythonRestartTimeout) {
+                    pythonRestartTimeout = setTimeout(startPythonDriver, 1000);
+                 }
+            }
+        });
+    } else {
+        console.warn('[Node->Py] Python process not ready or stdin closed, cannot send message.');
+        if (!pythonProcess && !pythonRestartTimeout) {
+             console.log('Python driver missing, scheduling restart...');
+            pythonRestartTimeout = setTimeout(startPythonDriver, 1000);
+        }
+    }
+}
+
+function startApp() {
+    console.log('Starting Scrolling Display Module...');
+    matrixController = createMatrixController(config); 
+    startDataFetching();
+
     if (!process.env.JEST_WORKER_ID) {
         const signals = ['SIGINT', 'SIGTERM'];
         signals.forEach(signal => {
@@ -382,22 +302,32 @@ function startApp() {
             process.on(signal, () => {
                 console.log(`\nCaught ${signal}. Shutting down...`);
                 stopDataFetching();
-                stopScrolling(); // Use the correct stop function
+                stopDisplaySwitchTimer();
+                if (pythonRestartTimeout) clearTimeout(pythonRestartTimeout);
+                if (pythonProcess) {
+                    console.log('Stopping Python driver...');
+                    pythonProcess.kill('SIGTERM');
+                    setTimeout(() => {
+                        if (pythonProcess && !pythonProcess.killed) {
+                           console.log('Force killing Python driver...');
+                           pythonProcess.kill('SIGKILL');
+                        }
+                    }, 2000);
+                }
                 if (matrixController) {
-                    matrixController.shutdown?.(); // Call hardware shutdown if available
+                    matrixController.shutdown?.(); 
                     matrixController.clear();
                     if (config.displayTarget === 'console') {
                        renderMatrixToConsole(matrixController.getMatrixState());
                     }
                 }
                 console.log('Exiting gracefully.');
-                process.exit(0);
+                setTimeout(() => process.exit(0), 500); 
             });
         });
     }
 }
 
-// --- Export or Run ---
 if (require.main === module) {
     startApp();
 } 
@@ -405,6 +335,6 @@ if (require.main === module) {
 const displayApi = {
     startApp, 
     stopDataFetching,
-    stopDisplaySwitchTimer // Keep alias for test compatibility
+    stopDisplaySwitchTimer 
 };
 module.exports = displayApi; 
