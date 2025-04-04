@@ -16,7 +16,7 @@ from luma.core.legacy.font import CP437_FONT
 from luma.core.legacy import text, textsize
 
 # --- Constants ---
-SCROLL_SPEED_PPS = 12 # Need this for manual scrolling
+SCROLL_SPEED_PPS = 13 # Need this for manual scrolling
 SCROLL_DELAY = 0.05 # Might not be used now, legacy text uses speed
 END_PAUSE_S = 10
 SELECT_TIMEOUT = 0.05 # Timeout for checking stdin during pause (slightly longer)
@@ -115,8 +115,12 @@ def main():
                     next_message = "" # Signal to clear display on next cycle
 
             # --- State Machine Logic ---
+            # Log state BEFORE checking transitions
+            # print(f"DEBUG: Loop start. State={state}, NextMsg='{next_message}'")
+
             # If we are idle and have a message, start scrolling it
             # Also handle the initial state here
+            print(f"DEBUG: Checking idle transition. State={state}, NextMsg='{next_message}'")
             if state == "idle_after_pause" and next_message is not None:
                  print(f"Processing buffered message: {next_message}")
                  current_message = next_message
@@ -160,6 +164,7 @@ def main():
                 draw_x = device.width - int(current_x_offset)
 
             elif state == "paused":
+                print(f"DEBUG: In paused state. Time remaining: {END_PAUSE_S - (time_now - pause_start_time):.1f}s")
                 draw_x = pause_draw_x # Keep the position fixed
 
                 # Check if pause duration is over
@@ -186,10 +191,11 @@ def main():
                     pause_draw_x = 0
 
             elif state == "idle_after_pause":
+                 print(f"DEBUG: In idle_after_pause state. DisplayMsg='{display_message}'")
                  # If we are here, we are displaying the last frame of the previous message
-                 # or the initial "Starting..." message
-                 # Use the previously calculated pause_draw_x
-                 draw_x = pause_draw_x
+                 # or the initial "Starting..." message, or blank.
+                 # Use the previously calculated pause_draw_x only if message not blank
+                 draw_x = pause_draw_x if display_message else 0 # Adjust draw_x for blank
                  # The check for next_message at the top of the state logic handles transitions out
 
             # --- Draw Frame ---
