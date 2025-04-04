@@ -141,67 +141,6 @@ function parseTimeFromDepartureString(str) {
     return time;
 }
 
-function processFetchedDepartures(rawDepartures, previousDepartures) {
-    if (rawDepartures && rawDepartures.length > 0) {
-        const newDepartures = rawDepartures.slice(0, 2);
-        console.log(`Processed ${newDepartures.length} departures.`);
-        const dataChanged = JSON.stringify(previousDepartures) !== JSON.stringify(newDepartures);
-        return { departures: newDepartures, changed: dataChanged };
-    } else {
-        console.log('No departures fetched or returned.');
-        return { departures: [], changed: previousDepartures.length > 0 };
-    }
-}
-
-function handleDataDisappeared() {
-    console.log('Data disappeared, clearing display and stopping switch timer.');
-    stopDisplaySwitchTimer();
-    latestDepartures = [];
-    currentDisplayIndex = 0;
-    sendToPythonDriver("");
-}
-
-function handleNewOrChangedData(departures) {
-    console.log('New data available, updating display.');
-    latestDepartures = departures;
-    currentDisplayIndex = 0;
-    updateDisplay();
-    if (latestDepartures.length > 1) {
-        startDisplaySwitchTimer();
-    } else {
-        stopDisplaySwitchTimer();
-    }
-}
-
-function handleNoData() {
-     console.log('No data, ensuring display is clear.');
-     latestDepartures = [];
-     currentDisplayIndex = 0;
-     stopDisplaySwitchTimer();
-     sendToPythonDriver("");
-}
-
-function updateStateAndDisplay(newState) {
-    const { departures, changed } = newState;
-
-    if (!changed) {
-         console.log('Data has not changed.');
-         return;
-    }
-
-    console.log('Data change detected.');
-    const hadDataBefore = latestDepartures.length > 0;
-    const hasDataNow = departures.length > 0;
-
-    if (hasDataNow) {
-        handleNewOrChangedData(departures);
-    } else if (hadDataBefore) {
-        handleDataDisappeared();
-    } else {
-       handleNoData();
-    }
-}
-
 function updateDisplay() {
     if (config.displayTarget === 'console') {
         if (!matrixController) matrixController = new ConsoleMatrixController(config.matrixWidth, config.matrixHeight);
@@ -235,34 +174,28 @@ function switchDisplay() {
 
 async function fetchData() {
     if (!isActiveHour()) {
-        console.log('Outside active hours. Skipping data fetch.');
-        if (latestDepartures.length > 0) {
-            updateStateAndDisplay({ departures: [], changed: true }); 
-        }
+        console.log('Outside active hours. Ensuring display is clear.');
+        handleFetchedDataUpdate([]); // Treat as empty data outside hours
         return;
     }
 
     console.log('Fetching departures...');
     try {
         const rawDepartures = await fetchDepartures(config.apiUrl);
-        const previousDepartures = [...latestDepartures];
-
-        const processingResult = processFetchedDepartures(rawDepartures, previousDepartures);
-        updateStateAndDisplay(processingResult);
-
+        const processedDepartures = processFetchedDepartures(rawDepartures);
+        handleFetchedDataUpdate(processedDepartures); // Handle the update directly
     } catch (error) {
         console.error('Error in fetchData:', error);
+        // Decide how to handle fetch errors - maybe clear display?
+        handleFetchedDataUpdate([]);
     }
 }
 
 function startDataFetching() {
     stopDataFetching();
     console.log(`Starting data fetching interval every ${config.pollingIntervalMs}ms.`);
-    if (isActiveHour()) {
-        fetchData();
-    } else {
-        handleNoData();
-    }
+    // Perform initial fetch immediately, then start interval
+    fetchData(); // Initial fetch kicks things off
     dataFetchIntervalId = setInterval(fetchData, config.pollingIntervalMs);
 }
 
@@ -271,22 +204,6 @@ function stopDataFetching() {
         clearInterval(dataFetchIntervalId);
         dataFetchIntervalId = null;
         console.log('Stopped data fetching.');
-    }
-}
-
-function startDisplaySwitchTimer() {
-    stopDisplaySwitchTimer();
-    if (latestDepartures.length > 1) {
-        console.log(`Starting display switch timer (${SWITCH_INTERVAL_MS}ms).`);
-        switchDisplayIntervalId = setInterval(switchDisplay, SWITCH_INTERVAL_MS);
-    }
-}
-
-function stopDisplaySwitchTimer() {
-    if (switchDisplayIntervalId) {
-        clearInterval(switchDisplayIntervalId);
-        switchDisplayIntervalId = null;
-        console.log('Stopped display switch timer.');
     }
 }
 
@@ -359,17 +276,17 @@ function sendToPythonDriver(message) {
 
 function startApp() {
     console.log('Starting Scrolling Display Module...');
-    matrixController = createMatrixController(config); 
-    startDataFetching();
+    matrixController = createMatrixController(config); // Starts Python if needed
+    startDataFetching(); // Starts fetching loop
 
+    // Graceful shutdown handling
     if (!process.env.JEST_WORKER_ID) {
         const signals = ['SIGINT', 'SIGTERM'];
         signals.forEach(signal => {
-            process.removeAllListeners(signal);
+            process.removeAllListeners(signal); // Prevent multiple handlers
             process.on(signal, () => {
                 console.log(`\nCaught ${signal}. Shutting down...`);
                 stopDataFetching();
-                stopDisplaySwitchTimer();
                 if (pythonRestartTimeout) clearTimeout(pythonRestartTimeout);
                 if (pythonProcess) {
                     console.log('Stopping Python driver...');
@@ -381,15 +298,13 @@ function startApp() {
                         }
                     }, 2000);
                 }
-                if (matrixController) {
-                    matrixController.shutdown?.(); 
+                if (matrixController && config.displayTarget === 'console') {
+                    matrixController.shutdown?.();
                     matrixController.clear();
-                    if (config.displayTarget === 'console') {
-                       renderMatrixToConsole(matrixController.getMatrixState());
-                    }
+                    renderMatrixToConsole(matrixController.getMatrixState());
                 }
                 console.log('Exiting gracefully.');
-                setTimeout(() => process.exit(0), 500); 
+                setTimeout(() => process.exit(0), 2500);
             });
         });
     }
@@ -401,7 +316,6 @@ if (require.main === module) {
 
 const displayApi = {
     startApp, 
-    stopDataFetching,
-    stopDisplaySwitchTimer 
+    stopDataFetching
 };
 module.exports = displayApi; 
