@@ -9,19 +9,19 @@ from luma.led_matrix.device import max7219
 from luma.core.interface.serial import spi, noop
 from luma.core.render import canvas
 from luma.core.virtual import viewport # We might not need viewport if drawing manually
-from luma.core.legacy import text
-from luma.core.legacy.font import proportional, CP437_FONT # Keep it simple for now
+# Import the specific functions/constants needed
+import luma.core.legacy # Import parent module
+from luma.core.legacy.font import CP437_FONT # Use basic font first
 
 def get_message_width(message, font):
     """Calculate the pixel width of a message using the specified font."""
     # Use the legacy text module's width function for the whole string
     try:
-        return text.width(message, font=font)
+        # Call through the parent module
+        return luma.core.legacy.text.width(message, font=font)
     except Exception as e:
-        # Fallback if width calculation fails (e.g., unexpected font issue)
         print(f"Warning: Could not calculate text width: {e}. Estimating.", file=sys.stderr)
-        # Estimate based on average character width (adjust if needed)
-        return len(message) * 6 
+        return len(message) * 6 # Estimate
 
 def main(cascaded, block_orientation, rotate, inreverse):
     # Setup the matrix device
@@ -54,7 +54,8 @@ def main(cascaded, block_orientation, rotate, inreverse):
     last_update_time = time.monotonic()
     scroll_speed_pps = 30  # Pixels per second
     current_x_offset = 0
-    selected_font = proportional(CP437_FONT)
+    # Use the basic font object directly
+    selected_font = CP437_FONT
 
     print("Ready to receive messages from stdin...")
     
@@ -88,7 +89,8 @@ def main(cascaded, block_orientation, rotate, inreverse):
 
             # Reset offset if scrolled past message width + screen width
             # Add device width to ensure it scrolls fully off screen
-            if current_x_offset > message_width + device.width:
+            reset_scroll_threshold = message_width if message_width > device.width else device.width
+            if current_x_offset > reset_scroll_threshold:
                  current_x_offset = 0
 
             # Calculate the x position for drawing (start off-screen right)
@@ -96,7 +98,8 @@ def main(cascaded, block_orientation, rotate, inreverse):
 
             # --- Draw the Frame ---
             with canvas(device) as draw:
-                text.draw(draw, (draw_x, 0), current_message, font=selected_font, fill="white")
+                 # Call through the parent module
+                luma.core.legacy.text.draw(draw, (draw_x, 0), current_message, font=selected_font, fill="white")
             
             # Small sleep to control frame rate / CPU usage
             # time.sleep(0.02) # ~50 FPS target, adjust as needed
