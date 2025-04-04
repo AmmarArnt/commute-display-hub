@@ -13,22 +13,47 @@ from luma.core.render import canvas
 # Import only the font data structure
 from luma.core.legacy.font import CP437_FONT
 # Import legacy text function and proportional font wrapper from example
-from luma.core.legacy import text
+from luma.core.legacy import text, show_message
+# Import Pillow font for static pause frame drawing
+from PIL import ImageFont
 
 # --- Constants ---
-SCROLL_SPEED_PPS = 12 # SLOWED DOWN SCROLL SPEED FURTHER
+SCROLL_SPEED_PPS = 12 # Not needed for show_message
+SCROLL_DELAY = 0.05 # Controls speed for show_message (lower is faster)
 END_PAUSE_S = 10
-SELECT_TIMEOUT = 0.02
-CHAR_SPACING = 1 # Pixels between characters
+SELECT_TIMEOUT = 0.05 # Timeout for checking stdin during pause (slightly longer)
+DEFAULT_FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+FONT_SIZE = 8 # Use 8 for Pillow font, draw at y=0
 
-def get_message_width(message, font):
-    """Calculate width using legacy text.width function."""
+def load_pillow_font(font_path=DEFAULT_FONT_PATH, size=FONT_SIZE):
+    """Load a TTF font using Pillow."""
     try:
-        if not message:
-            return 0
-        return text.width(message, font=font)
+        return ImageFont.truetype(font_path, size)
     except Exception as e:
-        print(f"Warning: Could not calculate text width for '{message}': {e}. Estimating.", file=sys.stderr)
+        print(f"ERROR: Failed to load Pillow font {font_path}: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        # Fallback or exit if font is critical
+        return None
+
+def get_pillow_message_width(draw, message, font):
+    """Calculate width using Pillow (needed for static frame)."""
+    try:
+        if not message or not font:
+            return 0
+        # Use textbbox if available (Pillow >= 7.2.0)
+        bbox = draw.textbbox((0, 0), message, font=font)
+        return bbox[2] - bbox[0] # width = x1 - x0
+    except AttributeError:
+        # Fallback to textsize for older Pillow
+        try:
+            size = draw.textsize(message, font=font)
+            print(f"Warning: Using older Pillow draw.textsize for width calc.", file=sys.stderr)
+            return size[0]
+        except Exception as e_size:
+            print(f"Warning: Pillow width calc failed (textsize): {e_size}. Estimating.", file=sys.stderr)
+            return len(message or "") * 6 # Rough estimate
+    except Exception as e:
+        print(f"Warning: Could not calculate Pillow text width for '{message}': {e}. Estimating.", file=sys.stderr)
         return len(message or "") * 6
 
 def parse_time_string(message):
@@ -39,6 +64,16 @@ def parse_time_string(message):
     if match_min:
         return next((g for g in match_min.groups() if g is not None), None)
     return None
+
+def get_message_width(message, font):
+    """Calculate width using legacy text.width function."""
+    try:
+        if not message:
+            return 0
+        return text.width(message, font=font)
+    except Exception as e:
+        print(f"Warning: Could not calculate text width for '{message}': {e}. Estimating.", file=sys.stderr)
+        return len(message or "") * 6
 
 def main():
     # Remove hardcoded message
