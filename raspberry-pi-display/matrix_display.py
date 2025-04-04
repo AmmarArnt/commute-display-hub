@@ -14,10 +14,14 @@ from luma.core.legacy.font import proportional, CP437_FONT # Keep it simple for 
 
 def get_message_width(message, font):
     """Calculate the pixel width of a message using the specified font."""
-    width = 0
-    for char in message:
-        width += text.width(char, font)
-    return width
+    # Use the legacy text module's width function for the whole string
+    try:
+        return text.width(message, font=font)
+    except Exception as e:
+        # Fallback if width calculation fails (e.g., unexpected font issue)
+        print(f"Warning: Could not calculate text width: {e}. Estimating.", file=sys.stderr)
+        # Estimate based on average character width (adjust if needed)
+        return len(message) * 6 
 
 def main(cascaded, block_orientation, rotate, inreverse):
     # Setup the matrix device
