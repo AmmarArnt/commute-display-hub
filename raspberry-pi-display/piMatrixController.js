@@ -30,18 +30,19 @@ class PiMatrixController {
 
         // Define default runtime options
         const defaultRuntimeOptions = {
-            gpioSlowdown: 1,
-            scanMode: 1,
-            pwmBits: 11,
-            brightness: 50, // Default brightness
-            chainLength: 1,
-            parallel: 1,
-            // hardwareMapping: 'regular', // REMOVED - Let library use its default
+            // gpioSlowdown: 1, // Temporarily removed for testing
+            // scanMode: 1, // Temporarily removed for testing
+            // pwmBits: 11, // Temporarily removed for testing
+            brightness: 50, // Keep brightness
+            // chainLength: 1, // Temporarily removed for testing
+            // parallel: 1, // Temporarily removed for testing
+            // hardwareMapping: 'regular', // Already removed
             // Add other potential defaults here if needed
         };
 
         // Merge overrides into defaults
-        const runtimeOptions = { ...defaultRuntimeOptions, ...configOverrides };
+        // Temporarily disable overrides to ensure only minimal options are passed
+        const runtimeOptions = { ...defaultRuntimeOptions /*, ...configOverrides */ }; 
         
         // Clamp initial brightness
         runtimeOptions.brightness = Math.max(0, Math.min(100, runtimeOptions.brightness));
