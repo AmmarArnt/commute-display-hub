@@ -19,7 +19,7 @@ END_PAUSE_S = 10
 SELECT_TIMEOUT = 0.02
 # Common path for DejaVu Sans font on Raspberry Pi OS/Debian
 DEFAULT_FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-FONT_SIZE = 7 # REDUCED FONT SIZE TO FIT DESCENDERS
+FONT_SIZE = 8 # REDUCED FONT SIZE TO FIT DESCENDERS
 
 def load_font(font_path=DEFAULT_FONT_PATH, size=FONT_SIZE):
     """Load a TTF font using Pillow."""
