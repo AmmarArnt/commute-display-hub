@@ -12,8 +12,8 @@ from luma.core.interface.serial import spi, noop
 from luma.core.render import canvas
 # Import only the font data structure
 from luma.core.legacy.font import CP437_FONT
-# Import legacy text function
-from luma.core.legacy import text
+# Import legacy text function AND textsize function
+from luma.core.legacy import text, textsize
 
 # --- Constants ---
 SCROLL_SPEED_PPS = 12 # Need this for manual scrolling
@@ -31,12 +31,13 @@ def parse_time_string(message):
     return None
 
 def get_message_width(message, font):
-    """Calculate width using legacy text.width function."""
+    """Calculate width using legacy textsize function."""
     try:
         if not message:
              return 0
-        # Use legacy function
-        return text.width(message, font=font)
+        # Use legacy textsize function - it returns (width, height)
+        width, _ = textsize(message, font=font)
+        return width
     except Exception as e:
         print(f"Warning: Could not calculate legacy text width for '{message}': {e}. Estimating.", file=sys.stderr)
         # CP437 is mostly 6px wide, use that as fallback
@@ -163,8 +164,10 @@ def main():
 
                 # Check if pause duration is over
                 if (time_now - pause_start_time) >= END_PAUSE_S:
-                    print("Pause finished. Entering idle state.")
+                    print("Pause finished. Entering idle state and clearing display.")
                     state = "idle_after_pause"
+                    display_message = "" # <--- ADDED: Clear the message for idle state
+                    # pause_draw_x = 0 # Resetting draw_x for idle isn't strictly needed if message is empty
 
                 # *** Check buffer for next message EVEN DURING PAUSE ***
                 if next_message is not None:
