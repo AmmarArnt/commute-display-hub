@@ -36,7 +36,7 @@ class PiMatrixController {
             brightness: 50, // Default brightness
             chainLength: 1,
             parallel: 1,
-            hardwareMapping: 'regular',
+            // hardwareMapping: 'regular', // REMOVED - Let library use its default
             // Add other potential defaults here if needed
         };
 
