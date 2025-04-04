@@ -169,6 +169,9 @@ def main():
                 # Or in terms of offset: offset = message_width - device.width
                 end_pause_trigger_offset = float(message_pixel_width - device.width)
 
+                # Calculate draw_x for scrolling state (moves from right to left)
+                draw_x = device.width - int(current_x_offset)
+
                 # Check if we should pause (only if message is wider than screen)
                 if time_string and message_pixel_width > device.width and current_x_offset >= end_pause_trigger_offset:
                     print(f"Reached end position (Offset: {current_x_offset:.1f}, Trigger: {end_pause_trigger_offset:.1f}). Pausing...")
@@ -180,8 +183,11 @@ def main():
                     state = "paused"
                     pause_start_time = time_now
 
-                # Calculate draw_x for scrolling state (moves from right to left)
-                draw_x = device.width - int(current_x_offset)
+                # Check if message has scrolled completely off screen
+                elif draw_x < -message_pixel_width:
+                    print(f"Message fully scrolled off (draw_x={draw_x}, width={message_pixel_width}). Entering idle.")
+                    state = "idle_after_pause"
+                    display_message = "" # Clear display for idle state
 
             elif state == "paused":
                 print(f"DEBUG: In paused state. Time remaining: {END_PAUSE_S - (time_now - pause_start_time):.1f}s")
