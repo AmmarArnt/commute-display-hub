@@ -22,27 +22,37 @@ function drawChar(matrix, charData, xOffset, yOffset, color) {
 }
 
 class PiMatrixController {
-    constructor(width, height) {
+    // Accept width, height, and an optional object for overriding runtime config
+    constructor(width, height, configOverrides = {}) {
         this.width = width;
         this.height = height;
-        this.matrix = null; // Initialize lazily or handle potential errors
+        this.matrix = null;
+
+        // Define default runtime options
+        const defaultRuntimeOptions = {
+            gpioSlowdown: 1,
+            scanMode: 1,
+            pwmBits: 11,
+            brightness: 50, // Default brightness
+            chainLength: 1,
+            parallel: 1,
+            hardwareMapping: 'regular',
+            // Add other potential defaults here if needed
+        };
+
+        // Merge overrides into defaults
+        const runtimeOptions = { ...defaultRuntimeOptions, ...configOverrides };
         
+        // Clamp initial brightness
+        runtimeOptions.brightness = Math.max(0, Math.min(100, runtimeOptions.brightness));
+
         try {
-            console.log('[PiMatrixController] Initializing rpi-led-matrix...');
-            // Basic configuration, adjust chainLength, parallel, hardwareMapping as needed
-            // These defaults often work for single MAX7219 modules via SPI
+            console.log('[PiMatrixController] Initializing rpi-led-matrix with options:', JSON.stringify({ matrix: { width, height }, runtime: runtimeOptions }));
+            
+            // Pass the matrix dimensions and the combined runtime options
             this.matrix = new LedMatrix(
-                { width: width, height: height }, // Matrix options
-                { // Runtime options
-                    gpioSlowdown: 1, // Adjust if needed
-                    scanMode: 1, // Check hardware docs, 1 often works for MAX7219
-                    pwmBits: 11, // Default
-                    brightness: 50, // 0-100
-                    chainLength: 1, // Number of matrices daisy-chained
-                    parallel: 1, // Number of parallel chains
-                    hardwareMapping: 'regular', // Common mapping
-                    // Add other options like pixelMapperScript if needed
-                }
+                { width: this.width, height: this.height }, // Matrix options
+                runtimeOptions // Merged runtime options
             );
             this.clear(); // Start with a clear matrix
             console.log('[PiMatrixController] rpi-led-matrix initialized successfully.');
@@ -135,6 +145,19 @@ class PiMatrixController {
         }
         // Caller should call sync()
         return totalWidth > 0 ? totalWidth - charSpacing : 0; // Return total calculated width
+    }
+
+    // Method to set brightness at runtime (0-100)
+    setBrightness(value) {
+        if (!this.matrix) return;
+        const brightness = Math.max(0, Math.min(100, Math.round(value))); // Clamp and round
+        console.log(`[PiMatrixController] Setting brightness to ${brightness}`);
+        try {
+             // The rpi-led-matrix library uses a method named brightness() to set it
+            this.matrix.brightness(brightness);
+        } catch (error) {
+             console.error('[PiMatrixController] Failed to set brightness:', error);
+        }
     }
 
     // Required by rpi-led-matrix to push buffer changes to the hardware
