@@ -20,6 +20,7 @@ let pythonProcess = null;
 let pythonRestartTimeout = null;
 const PYTHON_SCRIPT_PATH = path.join(__dirname, 'python_matrix_driver.py');
 let isPythonScrolling = false;
+let pythonOutputBuffer = ""; // NEW: Buffer for stdout lines
 
 // --- Matrix Controller Factory (Modified for clarity) ---
 function createMatrixController(targetConfig) {
@@ -219,18 +220,40 @@ function startPythonDriver() {
     }
 
     console.log(`Spawning Python driver: sudo python3 ${PYTHON_SCRIPT_PATH}`);
+    isPythonScrolling = false; // Reset flag on new start
+    newDataWaiting = false; // Reset flag
+    pythonOutputBuffer = ""; // Reset buffer on new start
+
     pythonProcess = spawn('sudo', ['python3', '-u', PYTHON_SCRIPT_PATH], {
-        stdio: ['pipe', 'pipe', 'pipe']
+        stdio: ['pipe', 'pipe', 'pipe'] // stdin, stdout, stderr
     });
 
+    // Handle stdout (Listen for "DONE")
     pythonProcess.stdout.on('data', (data) => {
-        process.stdout.write(`[PythonDriver] ${data}`);
+        pythonOutputBuffer += data.toString(); // Append chunk to buffer
+        let newlineIndex;
+        // Process all complete lines in the buffer
+        while ((newlineIndex = pythonOutputBuffer.indexOf('\n')) >= 0) {
+            const line = pythonOutputBuffer.substring(0, newlineIndex).trim(); // Extract line, trim whitespace
+            pythonOutputBuffer = pythonOutputBuffer.substring(newlineIndex + 1); // Remove line from buffer
+
+            if (line) { // Process non-empty lines
+                process.stdout.write(`[PythonDriver] ${line}\n`); // Log the processed line
+                if (line === 'DONE') { // Check specifically for DONE
+                    handlePythonDone(); // Trigger next step when Python finishes
+                }
+            }
+        }
+        // Any remaining text in pythonOutputBuffer is a partial line
     });
 
+    // Handle stderr
     pythonProcess.stderr.on('data', (data) => {
+        // Simple stderr logging for now
         process.stderr.write(`[PythonDriver ERR] ${data}`);
     });
 
+    // Handle process exit
     pythonProcess.on('close', (code) => {
         console.error(`[PythonDriver] Exited with code ${code}`);
         pythonProcess = null;
@@ -240,6 +263,7 @@ function startPythonDriver() {
         }
     });
 
+    // Handle spawn errors
     pythonProcess.on('error', (err) => {
         console.error('[PythonDriver] Failed to start process:', err);
         pythonProcess = null;
