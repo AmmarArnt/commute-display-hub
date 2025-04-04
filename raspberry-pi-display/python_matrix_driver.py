@@ -14,7 +14,7 @@ from luma.core.render import canvas
 from PIL import ImageFont
 
 # --- Constants ---
-SCROLL_SPEED_PPS = 15 # SLOWED DOWN SCROLL SPEED
+SCROLL_SPEED_PPS = 12 # SLOWED DOWN SCROLL SPEED FURTHER
 END_PAUSE_S = 10
 SELECT_TIMEOUT = 0.02
 # Common path for DejaVu Sans font on Raspberry Pi OS/Debian
@@ -153,7 +153,7 @@ def main():
 
                 reset_scroll_threshold = message_pixel_width
                 if current_x_offset > reset_scroll_threshold:
-                    print("Message scrolled fully off. Resetting (should pause normally).")
+                    print("Message scrolled fully off without pause. Resetting.")
                     current_x_offset = 0.0
 
             elif state == "paused":
