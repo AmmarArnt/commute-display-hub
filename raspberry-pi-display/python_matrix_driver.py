@@ -10,48 +10,24 @@ import re
 from luma.led_matrix.device import max7219
 from luma.core.interface.serial import spi, noop
 from luma.core.render import canvas
-# Pillow imports for drawing and fonts
-from PIL import ImageFont
+# Import only the font data structure
+from luma.core.legacy.font import CP437_FONT
+# Import legacy text function and proportional font wrapper from example
+from luma.core.legacy import text
+from luma.core.legacy.font import proportional
 
 # --- Constants ---
 SCROLL_SPEED_PPS = 12 # SLOWED DOWN SCROLL SPEED FURTHER
 END_PAUSE_S = 10
 SELECT_TIMEOUT = 0.02
-# Common path for DejaVu Sans font on Raspberry Pi OS/Debian
-DEFAULT_FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-FONT_SIZE = 8 # REDUCED FONT SIZE TO FIT DESCENDERS
+CHAR_SPACING = 1 # Pixels between characters
 
-def load_font(font_path=DEFAULT_FONT_PATH, size=FONT_SIZE):
-    """Load a TTF font using Pillow."""
-    try:
-        return ImageFont.truetype(font_path, size)
-    except IOError:
-        print(f"ERROR: Font file not found at {font_path}. Using fallback.", file=sys.stderr)
-        # Luma provides a fallback mechanism if Pillow isn't fully used,
-        # but draw.text requires a valid Pillow font object.
-        # We might need a bundled basic font as a true fallback.
-        # For now, exit if default font fails.
-        traceback.print_exc(file=sys.stderr)
-        sys.exit(1)
-    except Exception as e:
-        print(f"ERROR: Failed to load font {font_path}: {e}", file=sys.stderr)
-        traceback.print_exc(file=sys.stderr)
-        sys.exit(1)
-
-def get_message_width(draw, message, font):
-    """Calculate the pixel width using Pillow's textlength."""
+def get_message_width(message, font):
+    """Calculate width using legacy text.width function."""
     try:
         if not message:
             return 0
-        # Use Pillow's draw.textlength (available from Pillow 8.0.0)
-        # For older versions, draw.textsize might be needed, but textlength is preferred
-        bbox = draw.textbbox((0, 0), message, font=font)
-        return bbox[2] - bbox[0] # width = x1 - x0
-        # Alternative for older Pillow: return draw.textsize(message, font=font)[0]
-    except AttributeError:
-        # Fallback for very old Pillow versions lacking textbbox/textlength?
-        print(f"Warning: Pillow version might be too old for textbbox. Estimating width.", file=sys.stderr)
-        return len(message or "") * 6 # Rough estimate
+        return text.width(message, font=font)
     except Exception as e:
         print(f"Warning: Could not calculate text width for '{message}': {e}. Estimating.", file=sys.stderr)
         return len(message or "") * 6
@@ -115,11 +91,11 @@ def main():
                     current_message = new_message
                     display_message = current_message.replace('Ö', 'O').replace('ö', 'o')
                     print(f"Using display: {display_message}")
-                    # Recalculate widths
-                    with canvas(device) as _temp_draw: 
-                        message_pixel_width = get_message_width(_temp_draw, display_message, selected_font)
-                        time_string = parse_time_string(display_message)
-                        time_string_pixel_width = get_message_width(_temp_draw, time_string, selected_font) if time_string else 0
+                    # Recalculate width using text.width
+                    selected_font = proportional(CP437_FONT)
+                    print(f"Using font: proportional(CP437_FONT)")
+                    message_pixel_width = get_message_width(display_message, selected_font)
+                    time_string = parse_time_string(display_message)
                     # Reset state
                     current_x_offset = 0.0
                     last_update_time = time_now
@@ -133,7 +109,6 @@ def main():
                     display_message = ""
                     message_pixel_width = 0
                     time_string = None
-                    time_string_pixel_width = 0
                     current_x_offset = 0.0
                     state = "scrolling" # Will just show blank
 
@@ -168,8 +143,8 @@ def main():
             # --- Draw Frame ---
             with canvas(device) as draw:
                 if display_message:
-                    # Use Pillow's draw.text with the loaded TTF font
-                    draw.text((draw_x, 0), display_message, font=selected_font, fill="white")
+                    # *** Use legacy text function directly ***
+                    text(draw, (draw_x, 0), display_message, font=selected_font, fill="white")
 
         except KeyboardInterrupt:
             print("\nKeyboardInterrupt received. Exiting.")
@@ -190,8 +165,4 @@ def main():
             print(f"WARNING: Failed to clear device on exit: {e}", file=sys.stderr)
 
 if __name__ == "__main__":
-    # --- Font Loading ---
-    selected_font = load_font()
-    print(f"Font loaded: {DEFAULT_FONT_PATH}")
-
     main() # No KeyboardInterrupt handling needed here, it's in main's loop 
