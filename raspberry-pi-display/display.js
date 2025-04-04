@@ -19,12 +19,13 @@ try {
 let pythonProcess = null;
 let pythonRestartTimeout = null;
 const PYTHON_SCRIPT_PATH = path.join(__dirname, 'python_matrix_driver.py');
+let isPythonScrolling = false;
 
-// --- Matrix Controller Factory (Modified) ---
+// --- Matrix Controller Factory (Modified for clarity) ---
 function createMatrixController(targetConfig) {
     if (targetConfig.displayTarget === 'pi') {
         console.log('Using Python driver for Pi Hardware.');
-        startPythonDriver(); 
+        startPythonDriver();
         return null;
     } else {
         console.log('Using Console Matrix Controller.');
@@ -34,12 +35,11 @@ function createMatrixController(targetConfig) {
 
 let matrixController = null;
 let latestDepartures = [];
+let latestFetchedData = [];
+let newDataWaiting = false;
 let currentDisplayIndex = 0;
 
-// Fetch/Switch State
 let dataFetchIntervalId = null;
-let switchDisplayIntervalId = null;
-const SWITCH_INTERVAL_MS = 15000;
 
 // --- Helper Functions ---
 function isActiveHour() {
@@ -49,6 +49,77 @@ function isActiveHour() {
         return currentHour >= config.activeHourStart && currentHour < config.activeHourEnd;
     } else {
         return currentHour >= config.activeHourStart || currentHour < config.activeHourEnd;
+    }
+}
+
+function processFetchedDepartures(rawDepartures) {
+    if (rawDepartures && rawDepartures.length > 0) {
+        const newDepartures = rawDepartures.slice(0, 2);
+        console.log(`Processed ${newDepartures.length} departures from fetch.`);
+        return newDepartures;
+    } else {
+        console.log('No departures fetched or returned.');
+        return [];
+    }
+}
+
+function handlePythonDone() {
+    console.log('[Node] Python reported DONE.');
+    isPythonScrolling = false;
+
+    if (newDataWaiting) {
+        console.log('[Node] New data was waiting. Updating display sequence.');
+        latestDepartures = latestFetchedData;
+        newDataWaiting = false;
+        currentDisplayIndex = 0;
+        triggerDisplay();
+    } else if (latestDepartures.length > 0) {
+        currentDisplayIndex = (currentDisplayIndex + 1) % latestDepartures.length;
+        console.log(`[Node] Advancing to index ${currentDisplayIndex}`);
+        triggerDisplay();
+    } else {
+        console.log('[Node] No current data and no new data waiting. Remaining idle.');
+    }
+}
+
+function triggerDisplay() {
+    if (config.displayTarget !== 'pi') return;
+
+    if (isPythonScrolling) {
+        console.log('[Node] Python is busy, skipping triggerDisplay request.');
+        return;
+    }
+
+    let textToSend = "";
+    if (latestDepartures.length > 0) {
+        textToSend = latestDepartures[currentDisplayIndex] || "";
+    } else {
+        console.log('[Node] No departures to display. Sending empty string to clear.');
+    }
+
+    console.log(`[Node] Triggering display for index ${currentDisplayIndex}: '${textToSend}'`);
+    isPythonScrolling = true;
+    sendToPythonDriver(textToSend);
+}
+
+function handleFetchedDataUpdate(fetchedDepartures) {
+    const previousDataString = JSON.stringify(latestDepartures);
+    const newDataString = JSON.stringify(fetchedDepartures);
+
+    if (newDataString === previousDataString && !newDataWaiting) {
+        console.log('Fetched data is identical to current data. No update needed.');
+        return;
+    }
+
+    console.log('Fetched data is different or an update is pending. Buffering...');
+    latestFetchedData = fetchedDepartures;
+    newDataWaiting = true;
+
+    if (!isPythonScrolling) {
+        console.log('[Node] Python is idle. Processing new data immediately.');
+        handlePythonDone();
+    } else {
+         console.log('[Node] Python is scrolling. New data will be processed after current scroll finishes.');
     }
 }
 
