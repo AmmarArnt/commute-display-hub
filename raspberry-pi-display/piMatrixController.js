@@ -24,40 +24,39 @@ function drawChar(matrix, charData, xOffset, yOffset, color) {
 class PiMatrixController {
     // Accept width, height, and an optional object for overriding runtime config
     constructor(width, height, configOverrides = {}) {
-        console.log(`[PiMatrixController] Received width: ${width} (type: ${typeof width}), height: ${height} (type: ${typeof height})`); 
+        // Remove previous logging
+        // console.log(`[PiMatrixController] Received width: ${width} (type: ${typeof width}), height: ${height} (type: ${typeof height})`); 
         
-        this.width = width;
-        this.height = height;
+        // Ensure width/height are numbers (extra precaution)
+        this.width = parseInt(width, 10);
+        this.height = parseInt(height, 10);
         this.matrix = null;
 
-        // Define default runtime options
+        // Define default runtime options (restore most)
         const defaultRuntimeOptions = {
-            // gpioSlowdown: 1, // Temporarily removed for testing
-            // scanMode: 1, // Temporarily removed for testing
-            // pwmBits: 11, // Temporarily removed for testing
+            gpioSlowdown: 1, 
+            scanMode: 1, 
+            pwmBits: 11, 
             brightness: 50, // Keep brightness
-            // chainLength: 1, // Temporarily removed for testing
-            // parallel: 1, // Temporarily removed for testing
-            // hardwareMapping: 'regular', // Already removed
+            chainLength: 1, 
+            parallel: 1, 
+            // hardwareMapping: 'regular', // Keep commented out
             // Add other potential defaults here if needed
         };
 
-        // Merge overrides into defaults
-        // Temporarily disable overrides to ensure only minimal options are passed
-        const runtimeOptions = { ...defaultRuntimeOptions /*, ...configOverrides */ }; 
+        // Merge overrides into defaults (restore merging)
+        const runtimeOptions = { ...defaultRuntimeOptions , ...configOverrides }; 
         
         // Clamp initial brightness
         runtimeOptions.brightness = Math.max(0, Math.min(100, runtimeOptions.brightness));
 
         try {
-            // Log the options we *intend* to pass (even if simplified below)
-            console.log('[PiMatrixController] Intended options:', JSON.stringify({ matrix: { width, height }, runtime: runtimeOptions }));
+            // Log the options being passed now
+            console.log('[PiMatrixController] Initializing with options:', JSON.stringify({ matrix: { width: this.width, height: this.height }, runtime: runtimeOptions }));
 
-            // Pass the matrix dimensions and an EMPTY object for runtime options
-            console.log('[PiMatrixController] Attempting initialization with minimal options...');
             this.matrix = new LedMatrix(
                 { width: this.width, height: this.height }, // Matrix options
-                {} // Pass empty object for runtime options - force defaults
+                runtimeOptions // Pass merged runtime options again
             );
             this.clear(); // Start with a clear matrix
             console.log('[PiMatrixController] rpi-led-matrix initialized successfully.');
