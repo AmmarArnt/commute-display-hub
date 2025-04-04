@@ -16,8 +16,13 @@ def main():
     try:
         print("Initializing device...")
         serial = spi(port=0, device=0, gpio=noop())
-        # Using basic defaults: cascaded=1, rotate=0, etc.
-        device = max7219(serial, cascaded=1)
+        # Configure for 4 modules, arranged vertically for horizontal display
+        device = max7219(
+            serial, 
+            cascaded=4, 
+            block_orientation=-90 # Try -90 first for vertical stack
+            # rotate=0 is the default, so we don't need to specify it
+            )
         print("Device initialized.")
     except Exception as e:
         print(f"Error initializing luma.led_matrix: {e}", file=sys.stderr)
