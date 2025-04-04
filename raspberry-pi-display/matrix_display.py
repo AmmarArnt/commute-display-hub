@@ -2,16 +2,24 @@
 import time
 import argparse
 import sys
+import select  # For non-blocking stdin read
 
 # Import luma libraries
 from luma.led_matrix.device import max7219
 from luma.core.interface.serial import spi, noop
 from luma.core.render import canvas
-from luma.core.virtual import viewport
-from luma.core.legacy import text, show_message
-from luma.core.legacy.font import proportional, CP437_FONT, TINY_FONT, SINCLAIR_FONT, LCD_FONT
+from luma.core.virtual import viewport # We might not need viewport if drawing manually
+from luma.core.legacy import text
+from luma.core.legacy.font import proportional, CP437_FONT # Keep it simple for now
 
-def main(cascaded, block_orientation, rotate, inreverse, message):
+def get_message_width(message, font):
+    """Calculate the pixel width of a message using the specified font."""
+    width = 0
+    for char in message:
+        width += text.width(char, font)
+    return width
+
+def main(cascaded, block_orientation, rotate, inreverse):
     # Setup the matrix device
     try:
         serial = spi(port=0, device=0, gpio=noop())
@@ -37,31 +45,74 @@ def main(cascaded, block_orientation, rotate, inreverse, message):
     except Exception as e:
         print(f"Warning: Could not set contrast: {e}", file=sys.stderr)
 
-    if not message:
-        message = "Hello world!"
-        print("No message provided, using default.")
+    # --- Main Loop --- 
+    current_message = "Waiting for data..."
+    last_update_time = time.monotonic()
+    scroll_speed_pps = 30  # Pixels per second
+    current_x_offset = 0
+    selected_font = proportional(CP437_FONT)
 
-    print(f"Displaying: {message}")
-
-    # Display the message horizontally
-    # Using a large scroll_delay initially to prevent instant exit if message is short
-    # A better approach might be to loop or hold the last frame
+    print("Ready to receive messages from stdin...")
+    
     try:
-        show_message(device, message, fill="white", font=proportional(CP437_FONT), scroll_delay=0.1)
-        # Keep the script alive briefly to show the message
-        print("Message display initiated. Sleeping for 10 seconds...")
-        time.sleep(10) # Keep alive for 10 seconds 
+        while True:
+            # --- Check for new message from stdin (non-blocking) ---
+            # Use select to check if stdin has data without blocking the loop
+            # Use a short timeout (0.01s) for responsiveness
+            readable, _, _ = select.select([sys.stdin], [], [], 0.01)
+            if readable:
+                line = sys.stdin.readline()
+                if not line: # EOF means the Node process likely exited
+                    print("Stdin closed. Exiting.")
+                    break 
+                new_message = line.strip()
+                if new_message: # Only update if line wasn't empty
+                    current_message = new_message
+                    print(f"Received: {current_message}")
+                    # Reset scroll position when message changes
+                    current_x_offset = 0 
+                    last_update_time = time.monotonic()
+
+            # --- Calculate Scroll Position ---
+            message_width = get_message_width(current_message, selected_font)
+            time_now = time.monotonic()
+            time_delta = time_now - last_update_time
+            last_update_time = time_now
+
+            # Increment scroll offset
+            current_x_offset += scroll_speed_pps * time_delta
+
+            # Reset offset if scrolled past message width + screen width
+            # Add device width to ensure it scrolls fully off screen
+            if current_x_offset > message_width + device.width:
+                 current_x_offset = 0
+
+            # Calculate the x position for drawing (start off-screen right)
+            draw_x = device.width - int(current_x_offset)
+
+            # --- Draw the Frame ---
+            with canvas(device) as draw:
+                text.draw(draw, (draw_x, 0), current_message, font=selected_font, fill="white")
+            
+            # Small sleep to control frame rate / CPU usage
+            # time.sleep(0.02) # ~50 FPS target, adjust as needed
+            # Note: The select timeout above already provides some delay
+
     except KeyboardInterrupt:
         print("\nExiting by user request.")
     except Exception as e:
-        print(f"Error during show_message: {e}", file=sys.stderr)
+        print(f"Error during main loop: {e}", file=sys.stderr)
     finally:
-        # Clean up? The library might handle this on exit.
         print("Script finished.")
+        # Optional: Clear display on exit
+        try:
+            device.clear()
+        except:
+            pass 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description='matrix_display arguments',
+        description='Continuously scrolls text received from stdin on MAX7219 matrix',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
@@ -69,11 +120,10 @@ if __name__ == "__main__":
     parser.add_argument('--block-orientation', type=int, default=0, choices=[0, 90, -90], help='Corrects block orientation when wired vertically')
     parser.add_argument('--rotate', type=int, default=0, choices=[0, 1, 2, 3], help='Rotate display 0=0°, 1=90°, 2=180°, 3=270°')
     parser.add_argument('--reverse-order', type=bool, default=False, help='Set to true if blocks are in reverse order')
-    parser.add_argument('message', type=str, nargs='?', help='The message string to display') # Optional message argument
 
     args = parser.parse_args()
 
     try:
-        main(args.cascaded, args.block_orientation, args.rotate, args.reverse_order, args.message)
+        main(args.cascaded, args.block_orientation, args.rotate, args.reverse_order)
     except KeyboardInterrupt:
-        pass # Already handled in main or caught here 
+        pass # Already handled in main 
