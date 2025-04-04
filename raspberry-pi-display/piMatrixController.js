@@ -24,6 +24,8 @@ function drawChar(matrix, charData, xOffset, yOffset, color) {
 class PiMatrixController {
     // Accept width, height, and an optional object for overriding runtime config
     constructor(width, height, configOverrides = {}) {
+        console.log(`[PiMatrixController] Received width: ${width} (type: ${typeof width}), height: ${height} (type: ${typeof height})`); 
+        
         this.width = width;
         this.height = height;
         this.matrix = null;
