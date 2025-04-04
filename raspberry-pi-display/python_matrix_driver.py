@@ -12,49 +12,14 @@ from luma.core.interface.serial import spi, noop
 from luma.core.render import canvas
 # Import only the font data structure
 from luma.core.legacy.font import CP437_FONT
-# Import legacy text function and proportional font wrapper from example
-from luma.core.legacy import text, show_message
-# Import Pillow font for static pause frame drawing
-from PIL import ImageFont
+# Import legacy text function
+from luma.core.legacy import text
 
 # --- Constants ---
-SCROLL_SPEED_PPS = 12 # Not needed for show_message
-SCROLL_DELAY = 0.05 # Controls speed for show_message (lower is faster)
+SCROLL_SPEED_PPS = 12 # Need this for manual scrolling
+SCROLL_DELAY = 0.05 # Might not be used now, legacy text uses speed
 END_PAUSE_S = 10
 SELECT_TIMEOUT = 0.05 # Timeout for checking stdin during pause (slightly longer)
-DEFAULT_FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-FONT_SIZE = 8 # Use 8 for Pillow font, draw at y=0
-
-def load_pillow_font(font_path=DEFAULT_FONT_PATH, size=FONT_SIZE):
-    """Load a TTF font using Pillow."""
-    try:
-        return ImageFont.truetype(font_path, size)
-    except Exception as e:
-        print(f"ERROR: Failed to load Pillow font {font_path}: {e}", file=sys.stderr)
-        traceback.print_exc(file=sys.stderr)
-        # Fallback or exit if font is critical
-        return None
-
-def get_pillow_message_width(draw, message, font):
-    """Calculate width using Pillow (needed for static frame)."""
-    try:
-        if not message or not font:
-            return 0
-        # Use textbbox if available (Pillow >= 7.2.0)
-        bbox = draw.textbbox((0, 0), message, font=font)
-        return bbox[2] - bbox[0] # width = x1 - x0
-    except AttributeError:
-        # Fallback to textsize for older Pillow
-        try:
-            size = draw.textsize(message, font=font)
-            print(f"Warning: Using older Pillow draw.textsize for width calc.", file=sys.stderr)
-            return size[0]
-        except Exception as e_size:
-            print(f"Warning: Pillow width calc failed (textsize): {e_size}. Estimating.", file=sys.stderr)
-            return len(message or "") * 6 # Rough estimate
-    except Exception as e:
-        print(f"Warning: Could not calculate Pillow text width for '{message}': {e}. Estimating.", file=sys.stderr)
-        return len(message or "") * 6
 
 def parse_time_string(message):
     """Extract time part for pausing logic."""
@@ -69,10 +34,12 @@ def get_message_width(message, font):
     """Calculate width using legacy text.width function."""
     try:
         if not message:
-            return 0
+             return 0
+        # Use legacy function
         return text.width(message, font=font)
     except Exception as e:
-        print(f"Warning: Could not calculate text width for '{message}': {e}. Estimating.", file=sys.stderr)
+        print(f"Warning: Could not calculate legacy text width for '{message}': {e}. Estimating.", file=sys.stderr)
+        # CP437 is mostly 6px wide, use that as fallback
         return len(message or "") * 6
 
 def main():
@@ -85,9 +52,9 @@ def main():
         print("Initializing device...")
         serial = spi(port=0, device=0, gpio=noop())
         device = max7219(
-            serial, 
-            cascaded=4, 
-            block_orientation=-90 
+            serial,
+            cascaded=4,
+            block_orientation=-90
         )
         print("Device initialized.")
     except Exception as e:
@@ -97,6 +64,10 @@ def main():
         traceback.print_exc(file=sys.stderr)
         sys.exit(1)
 
+    # --- Font Selection ---
+    selected_font = CP437_FONT # Use font object directly
+    print(f"Using font: CP437_FONT")
+
     # Set brightness (contrast)
     try:
         device.contrast(16)
@@ -104,11 +75,23 @@ def main():
     except Exception as e:
         print(f"WARNING: Could not set contrast: {e}", file=sys.stderr)
 
+    # --- State Variable Initialization ---
+    current_message = "Starting..." # Start with a default message
+    display_message = current_message # Initially display it as is
+    next_message = None # Buffer for incoming messages
+    message_pixel_width = get_message_width(display_message, selected_font)
+    time_string = parse_time_string(display_message)
+
+    current_x_offset = 0.0
+    last_update_time = time.monotonic()
+    state = "idle_after_pause" # Start in idle, wait for first message
+    pause_start_time = 0
+    pause_draw_x = 0
+
     print("Ready to receive messages from stdin...")
-    
+
     # Loop indefinitely, reading from stdin
     while True:
-        draw_x = 0
         try:
             time_now = time.monotonic()
 
@@ -120,48 +103,72 @@ def main():
                     print("Stdin closed (EOF received). Exiting.")
                     break
                 new_msg_from_stdin = line.strip()
+
                 if new_msg_from_stdin:
                     print(f"Received buffer: {new_msg_from_stdin}")
-                    # *** Store in buffer, don't update display yet ***
+                    # Store in buffer, state machine will pick it up
                     next_message = new_msg_from_stdin
                 else:
-                    # Handle empty line received - clear the buffer too?
-                    # Or maybe clear the display immediately?
-                    # Let's clear the buffer and eventually the display will clear
+                    # Handle empty line received - clear the buffer
                     print("Received empty line buffer.")
                     next_message = "" # Signal to clear display on next cycle
 
             # --- State Machine Logic ---
+            # If we are idle and have a message, start scrolling it
+            # Also handle the initial state here
+            if state == "idle_after_pause" and next_message is not None:
+                 print(f"Processing buffered message: {next_message}")
+                 current_message = next_message
+                 display_message = current_message.replace('Ö', 'O').replace('ö', 'o')
+                 next_message = None # Clear buffer
+                 # Recalculate width
+                 message_pixel_width = get_message_width(display_message, selected_font)
+                 time_string = parse_time_string(display_message)
+                 # Reset state to start scrolling the new message
+                 current_x_offset = 0.0
+                 last_update_time = time_now
+                 state = "scrolling"
+                 pause_start_time = 0
+                 pause_draw_x = 0
+
             if state == "scrolling":
                 time_delta = time_now - last_update_time
                 current_x_offset += SCROLL_SPEED_PPS * time_delta
                 last_update_time = time_now
 
+                # Calculate the point where the *end* of the message reaches the *left* edge
+                # message_width is how long the text is
+                # device.width is how wide the screen is
+                # We want to pause when the last pixel of text is at x=0
+                # This happens when the starting draw_x = 0 - message_width + device.width
+                # Or in terms of offset: offset = message_width - device.width
                 end_pause_trigger_offset = float(message_pixel_width - device.width)
 
-                # Check if we should pause
+                # Check if we should pause (only if message is wider than screen)
                 if time_string and message_pixel_width > device.width and current_x_offset >= end_pause_trigger_offset:
-                    print(f"Reached end position (Offset: {current_x_offset:.1f}). Pausing...")
+                    print(f"Reached end position (Offset: {current_x_offset:.1f}, Trigger: {end_pause_trigger_offset:.1f}). Pausing...")
+                    # Calculate the x position to draw the text so the time_string aligns right
+                    time_string_width = get_message_width(time_string, selected_font)
+                    # pause_draw_x = device.width - time_string_width # Align time string right
+                    # Let's try drawing the *whole message* but stopped at the end
                     pause_draw_x = device.width - message_pixel_width
                     state = "paused"
                     pause_start_time = time_now
 
-                # Calculate draw_x for scrolling state
+                # Calculate draw_x for scrolling state (moves from right to left)
                 draw_x = device.width - int(current_x_offset)
 
             elif state == "paused":
-                draw_x = pause_draw_x
+                draw_x = pause_draw_x # Keep the position fixed
 
+                # Check if pause duration is over
                 if (time_now - pause_start_time) >= END_PAUSE_S:
                     print("Pause finished. Entering idle state.")
                     state = "idle_after_pause"
 
-            elif state == "idle_after_pause":
-                draw_x = pause_draw_x
-
-                # *** Check buffer for next message ***
+                # *** Check buffer for next message EVEN DURING PAUSE ***
                 if next_message is not None:
-                    print(f"Processing buffered message: {next_message}")
+                    print(f"PAUSE INTERRUPTED by buffered message: {next_message}")
                     current_message = next_message
                     display_message = current_message.replace('Ö', 'O').replace('ö', 'o')
                     next_message = None # Clear buffer
@@ -174,15 +181,23 @@ def main():
                     state = "scrolling"
                     pause_start_time = 0
                     pause_draw_x = 0
-                # else: No new message, just stay idle displaying the last frame
+
+            elif state == "idle_after_pause":
+                 # If we are here, we are displaying the last frame of the previous message
+                 # or the initial "Starting..." message
+                 # Use the previously calculated pause_draw_x
+                 draw_x = pause_draw_x
+                 # The check for next_message at the top of the state logic handles transitions out
 
             # --- Draw Frame ---
             with canvas(device) as draw:
                 if display_message:
+                    # Use legacy text function with legacy font
                     text(draw, (draw_x, 0), display_message, font=selected_font, fill="white")
+                # else: If display_message is empty (e.g., from empty buffer), canvas clears itself
 
         except KeyboardInterrupt:
-            print("\nKeyboardInterrupt received. Exiting.")
+            print("KeyboardInterrupt received. Exiting.")
             break # Exit the while loop
         except Exception as e:
             # Catch other errors during the loop to prevent crashing
