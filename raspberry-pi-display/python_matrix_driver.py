@@ -14,7 +14,6 @@ from luma.core.render import canvas
 from luma.core.legacy.font import CP437_FONT
 # Import legacy text function and proportional font wrapper from example
 from luma.core.legacy import text
-from luma.core.legacy.font import proportional
 
 # --- Constants ---
 SCROLL_SPEED_PPS = 12 # SLOWED DOWN SCROLL SPEED FURTHER
@@ -85,32 +84,17 @@ def main():
                 if not line:
                     print("Stdin closed (EOF received). Exiting.")
                     break
-                new_message = line.strip()
-                if new_message:
-                    print(f"Received original: {new_message}")
-                    current_message = new_message
-                    display_message = current_message.replace('Ö', 'O').replace('ö', 'o')
-                    print(f"Using display: {display_message}")
-                    # Recalculate width using text.width
-                    selected_font = proportional(CP437_FONT)
-                    print(f"Using font: proportional(CP437_FONT)")
-                    message_pixel_width = get_message_width(display_message, selected_font)
-                    time_string = parse_time_string(display_message)
-                    # Reset state
-                    current_x_offset = 0.0
-                    last_update_time = time_now
-                    state = "scrolling"
-                    pause_start_time = 0
-                    pause_draw_x = 0
+                new_msg_from_stdin = line.strip()
+                if new_msg_from_stdin:
+                    print(f"Received buffer: {new_msg_from_stdin}")
+                    # *** Store in buffer, don't update display yet ***
+                    next_message = new_msg_from_stdin
                 else:
-                    # Handle empty line: clear display
-                    print("Received empty line, clearing display.")
-                    current_message = ""
-                    display_message = ""
-                    message_pixel_width = 0
-                    time_string = None
-                    current_x_offset = 0.0
-                    state = "scrolling" # Will just show blank
+                    # Handle empty line received - clear the buffer too?
+                    # Or maybe clear the display immediately?
+                    # Let's clear the buffer and eventually the display will clear
+                    print("Received empty line buffer.")
+                    next_message = "" # Signal to clear display on next cycle
 
             # --- State Machine Logic ---
             if state == "scrolling":
@@ -140,10 +124,26 @@ def main():
             elif state == "idle_after_pause":
                 draw_x = pause_draw_x
 
+                # *** Check buffer for next message ***
+                if next_message is not None:
+                    print(f"Processing buffered message: {next_message}")
+                    current_message = next_message
+                    display_message = current_message.replace('Ö', 'O').replace('ö', 'o')
+                    next_message = None # Clear buffer
+                    # Recalculate width
+                    message_pixel_width = get_message_width(display_message, selected_font)
+                    time_string = parse_time_string(display_message)
+                    # Reset state to start scrolling the new message
+                    current_x_offset = 0.0
+                    last_update_time = time_now
+                    state = "scrolling"
+                    pause_start_time = 0
+                    pause_draw_x = 0
+                # else: No new message, just stay idle displaying the last frame
+
             # --- Draw Frame ---
             with canvas(device) as draw:
                 if display_message:
-                    # *** Use legacy text function directly ***
                     text(draw, (draw_x, 0), display_message, font=selected_font, fill="white")
 
         except KeyboardInterrupt:
