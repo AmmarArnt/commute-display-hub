@@ -16,7 +16,7 @@ from luma.core.legacy.font import CP437_FONT
 from luma.core.legacy import text, textsize
 
 # --- Constants ---
-SCROLL_SPEED_PPS = 13 # Pixels per second
+SCROLL_SPEED_PPS = 14 # Pixels per second
 
 def parse_time_string(message):
     """Extract time part (though pause logic is removed)."""
@@ -82,7 +82,8 @@ def main():
                 print("Stdin closed (EOF received). Exiting.")
                 break # Exit loop on EOF
 
-            display_message = line.strip().replace('Ö', 'O').replace('ö', 'o')
+            # REMOVE REPLACEMENT: Use the raw message
+            display_message = line.strip()
             print(f"Received message: '{display_message}'")
 
             # If message is empty, clear display and signal DONE
