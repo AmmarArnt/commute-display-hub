@@ -98,6 +98,7 @@ def main():
     
     # Loop indefinitely, reading from stdin
     while True:
+        draw_x = 0
         try:
             time_now = time.monotonic()
 
@@ -150,6 +151,9 @@ def main():
                     pause_draw_x = device.width - message_pixel_width
                     state = "paused"
                     pause_start_time = time_now
+
+                # Calculate draw_x for scrolling state
+                draw_x = device.width - int(current_x_offset)
 
             elif state == "paused":
                 draw_x = pause_draw_x
