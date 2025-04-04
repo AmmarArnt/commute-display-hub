@@ -48,12 +48,14 @@ class PiMatrixController {
         runtimeOptions.brightness = Math.max(0, Math.min(100, runtimeOptions.brightness));
 
         try {
-            console.log('[PiMatrixController] Initializing rpi-led-matrix with options:', JSON.stringify({ matrix: { width, height }, runtime: runtimeOptions }));
-            
-            // Pass the matrix dimensions and the combined runtime options
+            // Log the options we *intend* to pass (even if simplified below)
+            console.log('[PiMatrixController] Intended options:', JSON.stringify({ matrix: { width, height }, runtime: runtimeOptions }));
+
+            // Pass the matrix dimensions and an EMPTY object for runtime options
+            console.log('[PiMatrixController] Attempting initialization with minimal options...');
             this.matrix = new LedMatrix(
                 { width: this.width, height: this.height }, // Matrix options
-                runtimeOptions // Merged runtime options
+                {} // Pass empty object for runtime options - force defaults
             );
             this.clear(); // Start with a clear matrix
             console.log('[PiMatrixController] rpi-led-matrix initialized successfully.');
