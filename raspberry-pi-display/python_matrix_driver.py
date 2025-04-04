@@ -137,6 +137,26 @@ def main():
                  pause_draw_x = 0
 
             if state == "scrolling":
+                # *** Check buffer for next message EVEN DURING SCROLLING *** ADDED BLOCK
+                if next_message is not None:
+                    print(f"SCROLL INTERRUPTED by buffered message: {next_message}")
+                    current_message = next_message
+                    display_message = current_message.replace('Ö', 'O').replace('ö', 'o')
+                    next_message = None # Clear buffer
+                    # Recalculate width
+                    message_pixel_width = get_message_width(display_message, selected_font)
+                    time_string = parse_time_string(display_message)
+                    # Reset state to start scrolling the new message
+                    current_x_offset = 0.0
+                    last_update_time = time_now
+                    state = "scrolling" # Remain scrolling, but reset parameters
+                    pause_start_time = 0
+                    pause_draw_x = 0
+                    # Skip the rest of the scrolling logic for this loop iteration
+                    # as we just reset the offset and message
+                    continue # Use continue to restart loop with new scroll params
+                # *** END ADDED BLOCK ***
+
                 time_delta = time_now - last_update_time
                 current_x_offset += SCROLL_SPEED_PPS * time_delta
                 last_update_time = time_now
