@@ -30,6 +30,13 @@ def main(cascaded, block_orientation, rotate, inreverse, message):
             print("Permission error: Try running with sudo.", file=sys.stderr)
         sys.exit(1)
 
+    # Set brightness (contrast)
+    try:
+        device.contrast(16) # Set contrast/brightness (0-255 range, 16 is a decent starting point)
+        print("Device contrast set to 16.")
+    except Exception as e:
+        print(f"Warning: Could not set contrast: {e}", file=sys.stderr)
+
     if not message:
         message = "Hello world!"
         print("No message provided, using default.")
@@ -42,8 +49,8 @@ def main(cascaded, block_orientation, rotate, inreverse, message):
     try:
         show_message(device, message, fill="white", font=proportional(CP437_FONT), scroll_delay=0.1)
         # Keep the script alive briefly to show the message
-        # For continuous display, a loop or different logic would be needed here.
-        # time.sleep(60) # Example: keep alive for 60 seconds 
+        print("Message display initiated. Sleeping for 10 seconds...")
+        time.sleep(10) # Keep alive for 10 seconds 
     except KeyboardInterrupt:
         print("\nExiting by user request.")
     except Exception as e:
