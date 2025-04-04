@@ -151,11 +151,6 @@ def main():
                     state = "paused"
                     pause_start_time = time_now
 
-                reset_scroll_threshold = message_pixel_width
-                if current_x_offset > reset_scroll_threshold:
-                    print("Message scrolled fully off without pause. Resetting.")
-                    current_x_offset = 0.0
-
             elif state == "paused":
                 draw_x = pause_draw_x
 
@@ -167,8 +162,6 @@ def main():
                 draw_x = pause_draw_x
 
             # --- Draw Frame ---
-            draw_x = device.width - int(current_x_offset)
-
             with canvas(device) as draw:
                 if display_message:
                     # Use Pillow's draw.text with the loaded TTF font
