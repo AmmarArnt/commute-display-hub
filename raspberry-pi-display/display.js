@@ -105,13 +105,14 @@ function triggerDisplay() {
 function handleFetchedDataUpdate(fetchedDepartures) {
     const previousDataString = JSON.stringify(latestDepartures);
     const newDataString = JSON.stringify(fetchedDepartures);
+    const isIdentical = newDataString === previousDataString;
 
-    if (newDataString === previousDataString && !newDataWaiting) {
-        console.log('Fetched data is identical to current data. No update needed.');
+    if (isIdentical && !newDataWaiting && latestDepartures.length > 0) { 
+        console.log('Fetched data is identical to current data (and data exists). No update needed.');
         return;
     }
 
-    console.log('Fetched data is different or an update is pending. Buffering...');
+    console.log(`Fetched data differs, is empty, or update was pending. Buffering data: ${newDataString}`);
     latestFetchedData = fetchedDepartures;
     newDataWaiting = true;
 
