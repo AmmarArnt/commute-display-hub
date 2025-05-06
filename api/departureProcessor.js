@@ -5,23 +5,23 @@
  * @param {string} expectedTimeStr - ISO timestamp string.
  * @returns {number|null} Time difference in minutes or null.
  */
-function calculateTimeDiffInMinutes(expectedTimeStr) {
-    if (!expectedTimeStr) return null;
-    const now = new Date();
-    const expectedTime = new Date(expectedTimeStr);
-    const diffMs = expectedTime - now;
-    // Ignore departures less than 30 seconds away or passed
-    if (diffMs < 30000) return null;
-    // Calculate minutes using floor (round down)
-    return Math.floor(diffMs / 60000);
-}
+// function calculateTimeDiffInMinutes(expectedTimeStr) {
+//     if (!expectedTimeStr) return null;
+//     const now = new Date();
+//     const expectedTime = new Date(expectedTimeStr);
+//     const diffMs = expectedTime - now;
+//     // Ignore departures less than 30 seconds away or passed
+//     if (diffMs < 30000) return null;
+//     // Calculate minutes using floor (round down)
+//     return Math.floor(diffMs / 60000);
+// }
 
 /**
- * Processes raw departure data: filters, formats, sorts, and deduplicates.
+ * Processes raw departure data: filters, formats, and limits the number of results.
  *
  * @param {Array<object>} rawDepartures - The raw departures array from the API.
  * @param {string} destinationName - The target destination name to filter by.
- * @param {number} departuresToShow - The maximum number of unique departures to return.
+ * @param {number} departuresToShow - The maximum number of departures to return.
  * @returns {Array<string>} An array of formatted departure strings.
  */
 function processDepartures(rawDepartures, destinationName, departuresToShow) {
@@ -29,41 +29,28 @@ function processDepartures(rawDepartures, destinationName, departuresToShow) {
         return [];
     }
 
-    // Filter, Format, and Sort
+    // Filter, Format
     const processedDepartures = rawDepartures
-        .filter(dep => dep.destination?.includes(destinationName))
+        .filter(dep => dep.destination?.includes(destinationName) && dep.stop_point?.designation !== 'B')
         .map(dep => {
-            const expectedTime = dep.expected || dep.scheduled;
-            const timeLeftMinutes = calculateTimeDiffInMinutes(expectedTime);
-            if (timeLeftMinutes === null) return null;
+            // Use display field directly from API response
+            const displayTime = dep.display;
+            const lineDesignation = dep.line?.designation; // Optional chaining handles if line is null/undefined
 
-            // Always format as relative time (or Nu)
-            const displayTime = timeLeftMinutes === 0 ? 'Nu' : `${timeLeftMinutes} min`;
+            // If essential display information is missing, mark for filtering by returning null
+            // dep.destination is assumed to be valid due to the preceding .filter()
+            if (!displayTime || !lineDesignation) {
+                return null;
+            }
 
             return {
-                journeyId: dep.journey?.id,
-                timeLeft: timeLeftMinutes,
-                displayString: `${dep.line?.designation || 'N/A'} ${dep.destination} ${displayTime}`
+                displayString: `${lineDesignation} ${dep.destination} ${displayTime}`
             };
         })
-        .filter(dep => dep !== null && dep.journeyId !== undefined)
-        .sort((a, b) => a.timeLeft - b.timeLeft);
+        .filter(depObjOrNull => depObjOrNull !== null) // Filter out items that were marked as null
 
-    // Deduplicate based on journeyId
-    const uniqueDepartures = [];
-    const seenJourneyIds = new Set();
-
-    for (const dep of processedDepartures) {
-        if (!seenJourneyIds.has(dep.journeyId)) {
-            seenJourneyIds.add(dep.journeyId);
-            uniqueDepartures.push(dep.displayString);
-            if (uniqueDepartures.length >= departuresToShow) {
-                break;
-            }
-        }
-    }
-
-    return uniqueDepartures;
+    // Return the first 'departuresToShow' items after mapping
+    return processedDepartures.slice(0, departuresToShow).map(dep => dep.displayString);
 }
 
 module.exports = {

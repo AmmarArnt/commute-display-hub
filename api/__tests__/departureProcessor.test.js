@@ -1,24 +1,13 @@
 const { processDepartures } = require('../departureProcessor'); // Adjusted path
 
-// Helper to create a mock departure object with a specific time
-const createMockDeparture = (journeyId, destination, line, minutesFromNow) => {
-    const expectedTime = new Date(Date.now() + minutesFromNow * 60000);
+// Helper to create a mock departure object
+const createMockDeparture = (journeyId, destination, line, display, stopPointDesignation = 'Platform A') => {
     return {
-        journey: { id: journeyId },
+        journey: { id: journeyId }, // Still useful for identifying unique API entries if needed, though not for deduping in processor
         destination: destination,
-        expected: expectedTime.toISOString(),
-        line: { designation: line }
-    };
-};
-
-// Helper to create a mock departure with scheduled time only
-const createMockDepartureScheduled = (journeyId, destination, line, minutesFromNow) => {
-    const scheduledTime = new Date(Date.now() + minutesFromNow * 60000);
-    return {
-        journey: { id: journeyId },
-        destination: destination,
-        scheduled: scheduledTime.toISOString(),
-        line: { designation: line }
+        display: display, // Direct display string from API
+        line: { designation: line },
+        stop_point: { designation: stopPointDesignation }
     };
 };
 
@@ -26,178 +15,153 @@ describe('Departure Processor', () => {
     const TARGET_DESTINATION = 'Test Destination';
     const DEPARTURES_TO_SHOW = 3;
 
-    // ... (rest of the test cases remain the same)
     it('should return an empty array for empty or invalid input', () => {
         expect(processDepartures(null, TARGET_DESTINATION, DEPARTURES_TO_SHOW)).toEqual([]);
         expect(processDepartures([], TARGET_DESTINATION, DEPARTURES_TO_SHOW)).toEqual([]);
-        expect(processDepartures({}, TARGET_DESTINATION, DEPARTURES_TO_SHOW)).toEqual([]);
+        expect(processDepartures({}, TARGET_DESTINATION, DEPARTURES_TO_SHOW)).toEqual([]); // Technically {} is an object, not an array. API expects array.
     });
 
     it('should filter departures by destination', () => {
         const rawData = [
-            createMockDeparture(1, TARGET_DESTINATION, '100', 5),
-            createMockDeparture(2, 'Wrong Destination', '101', 10)
+            createMockDeparture(1, TARGET_DESTINATION, '100', '5 min'),
+            createMockDeparture(2, 'Wrong Destination', '101', '10 min')
         ];
         const result = processDepartures(rawData, TARGET_DESTINATION, DEPARTURES_TO_SHOW);
         expect(result).toHaveLength(1);
-        expect(result[0]).toContain(TARGET_DESTINATION);
+        expect(result[0]).toBe(`100 ${TARGET_DESTINATION} 5 min`);
     });
 
-    it('should format departures correctly (including Nu for <= 0 min)', () => {
+    it('should use the display field directly for time', () => {
         const rawData = [
-            createMockDeparture(1, TARGET_DESTINATION, '100', 5),
-            createMockDeparture(2, TARGET_DESTINATION, '101', 0.4)
+            createMockDeparture(1, TARGET_DESTINATION, '100', '5 min'),
+            createMockDeparture(2, TARGET_DESTINATION, '101', 'Nu')
         ];
         const result = processDepartures(rawData, TARGET_DESTINATION, DEPARTURES_TO_SHOW);
-        expect(result).toHaveLength(1);
-        expect(result[0]).toBe('100 Test Destination 5 min');
-
-         const nowData = [createMockDeparture(3, TARGET_DESTINATION, '102', 0)];
-         const nowResult = processDepartures(nowData, TARGET_DESTINATION, DEPARTURES_TO_SHOW);
-         expect(nowResult).toEqual([]);
-
-        const slightlyFutureData = [createMockDeparture(4, TARGET_DESTINATION, '103', 0.6)];
-        const futureResult = processDepartures(slightlyFutureData, TARGET_DESTINATION, DEPARTURES_TO_SHOW);
-        expect(futureResult).toHaveLength(1);
-        expect(futureResult[0]).toBe('103 Test Destination 1 min');
+        expect(result).toHaveLength(2);
+        expect(result[0]).toBe(`100 ${TARGET_DESTINATION} 5 min`);
+        expect(result[1]).toBe(`101 ${TARGET_DESTINATION} Nu`);
     });
 
-    it('should sort departures by time remaining', () => {
+    it('should filter out departures from Platform B', () => {
         const rawData = [
-            createMockDeparture(1, TARGET_DESTINATION, '100', 15),
-            createMockDeparture(2, TARGET_DESTINATION, '101', 5),
-            createMockDeparture(3, TARGET_DESTINATION, '102', 25)
+            createMockDeparture(1, TARGET_DESTINATION, '100', '5 min', 'Platform A'),
+            createMockDeparture(2, TARGET_DESTINATION, '101', '10 min', 'B'), // Changed to 'B' to match processor
+            createMockDeparture(3, TARGET_DESTINATION, '102', '15 min', 'Platform C'),
+            createMockDeparture(4, TARGET_DESTINATION, '103', '20 min') // Defaults to Platform A in helper
         ];
         const result = processDepartures(rawData, TARGET_DESTINATION, DEPARTURES_TO_SHOW);
+        expect(result).toHaveLength(3); // 100, 102, 103
+        expect(result).not.toContain(`101 ${TARGET_DESTINATION} 10 min`);
         expect(result).toEqual([
-            '101 Test Destination 5 min',
-            '100 Test Destination 15 min',
-            '102 Test Destination 25 min'
+            `100 ${TARGET_DESTINATION} 5 min`,
+            `102 ${TARGET_DESTINATION} 15 min`,
+            `103 ${TARGET_DESTINATION} 20 min`
         ]);
     });
 
-    it('should deduplicate departures by journey ID, keeping the earliest', () => {
+    it('should include all items if no other filters apply, without deduplicating', () => {
         const rawData = [
-            createMockDeparture(1, TARGET_DESTINATION, '100', 15),
-            createMockDeparture(1, TARGET_DESTINATION, '100', 16),
-            createMockDeparture(2, TARGET_DESTINATION, '101', 5),
-            createMockDeparture(3, TARGET_DESTINATION, '102', 25),
-            createMockDeparture(2, TARGET_DESTINATION, '101', 4),
-
+            createMockDeparture(1, TARGET_DESTINATION, '100', '15 min'), 
+            createMockDeparture(1, TARGET_DESTINATION, '100', '16 min'), 
+            createMockDeparture(2, TARGET_DESTINATION, '101', '5 min'),
         ];
         const result = processDepartures(rawData, TARGET_DESTINATION, DEPARTURES_TO_SHOW);
         expect(result).toEqual([
-            '101 Test Destination 4 min',
-            '100 Test Destination 15 min',
-            '102 Test Destination 25 min'
+            `100 ${TARGET_DESTINATION} 15 min`,
+            `100 ${TARGET_DESTINATION} 16 min`,
+            `101 ${TARGET_DESTINATION} 5 min`
         ]);
     });
 
-    it('should limit the number of results to departuresToShow', () => {
+    it('should limit the number of results to departuresToShow after filtering', () => {
         const rawData = [
-            createMockDeparture(1, TARGET_DESTINATION, '100', 5),
-            createMockDeparture(2, TARGET_DESTINATION, '101', 10),
-            createMockDeparture(3, TARGET_DESTINATION, '102', 15),
-            createMockDeparture(4, TARGET_DESTINATION, '103', 20)
+            createMockDeparture(1, TARGET_DESTINATION, '100', '5 min'),
+            createMockDeparture(2, TARGET_DESTINATION, '101', '10 min', 'B'), // Will be filtered out
+            createMockDeparture(3, TARGET_DESTINATION, '102', '15 min'),
+            createMockDeparture(4, TARGET_DESTINATION, '103', '20 min')
         ];
-        const result = processDepartures(rawData, TARGET_DESTINATION, 2);
+        const result = processDepartures(rawData, TARGET_DESTINATION, 2); // Expect 2 results
         expect(result).toHaveLength(2);
         expect(result).toEqual([
-            '100 Test Destination 5 min',
-            '101 Test Destination 10 min'
+            `100 ${TARGET_DESTINATION} 5 min`,
+            `102 ${TARGET_DESTINATION} 15 min` 
         ]);
     });
 
-    it('should handle missing expected time by using scheduled time', () => {
+    it('should handle departures with missing line designation gracefully', () => {
         const rawData = [
-            createMockDepartureScheduled(1, TARGET_DESTINATION, '100', 8)
+            { 
+                destination: TARGET_DESTINATION, 
+                display: '5 min',
+                line: undefined, // Missing line
+                stop_point: { designation: 'Platform A'}
+            }
         ];
         const result = processDepartures(rawData, TARGET_DESTINATION, DEPARTURES_TO_SHOW);
-        expect(result).toHaveLength(1);
-        expect(result[0]).toBe('100 Test Destination 8 min');
+        // This departure should now be filtered out
+        expect(result).toEqual([]);
     });
 
-    it('should handle departures with missing journey ID', () => {
-        const rawData = [
-            { ...createMockDeparture(undefined, TARGET_DESTINATION, '100', 5), journey: undefined },
-            createMockDeparture(2, TARGET_DESTINATION, '101', 10)
-        ];
-        const result = processDepartures(rawData, TARGET_DESTINATION, DEPARTURES_TO_SHOW);
-        expect(result).toHaveLength(1);
-        expect(result[0]).toBe('101 Test Destination 10 min');
-    });
-
-     it('should handle departures with missing line designation gracefully', () => {
-        const rawData = [
-            { ...createMockDeparture(1, TARGET_DESTINATION, undefined, 5), line: undefined }
-        ];
-        const result = processDepartures(rawData, TARGET_DESTINATION, DEPARTURES_TO_SHOW);
-        expect(result).toHaveLength(1);
-        expect(result[0]).toBe('N/A Test Destination 5 min');
-    });
-
-    it('should filter out departures with times in the past or too close (< 30s)', () => {
-        const rawData = [
-            createMockDeparture(1, TARGET_DESTINATION, '100', -5),
-            createMockDeparture(2, TARGET_DESTINATION, '101', 0.2),
-            createMockDeparture(3, TARGET_DESTINATION, '102', 1)
-        ];
-        const result = processDepartures(rawData, TARGET_DESTINATION, DEPARTURES_TO_SHOW);
-        expect(result).toHaveLength(1);
-        expect(result[0]).toBe('102 Test Destination 1 min');
-    });
-
-    it('should handle departures with no time string (expected or scheduled)', () => {
+    it('should handle departures with no display string gracefully', () => {
         const rawData = [
             {
-                journey: { id: 1 },
                 destination: TARGET_DESTINATION,
-                // No expected or scheduled time
-                line: { designation: '100' }
+                display: undefined, // No display string
+                line: { designation: '100' },
+                stop_point: { designation: 'Platform A'}
             },
-            createMockDeparture(2, TARGET_DESTINATION, '101', 5) // Include a valid one
+            createMockDeparture(2, TARGET_DESTINATION, '101', '5 min') // Include a valid one
         ];
         const result = processDepartures(rawData, TARGET_DESTINATION, DEPARTURES_TO_SHOW);
-        // The departure with no time should be filtered out by calculateTimeDiffInMinutes returning null
+        // The first departure should be filtered out
         expect(result).toHaveLength(1);
-        expect(result[0]).toBe('101 Test Destination 5 min');
+        expect(result[0]).toBe(`101 ${TARGET_DESTINATION} 5 min`);
     });
 
-    it('should handle departures where journey exists but journey.id is missing', () => {
+    it('should handle missing stop_point gracefully (will not be filtered as B)', () => {
         const rawData = [
-             { // Valid departure structure but missing journey.id
-                journey: {}, // Journey object exists, but no id
+            createMockDeparture(1, TARGET_DESTINATION, '100', '5 min', 'Platform A'),
+            {
                 destination: TARGET_DESTINATION,
-                expected: new Date(Date.now() + 5 * 60000).toISOString(),
-                line: { designation: '100' }
+                line: { designation: '101' },
+                display: '10 min',
+                stop_point: undefined // Missing stop_point
             },
-            createMockDeparture(2, TARGET_DESTINATION, '101', 10)
+            createMockDeparture(3, TARGET_DESTINATION, '102', '15 min', 'B')
         ];
-         const result = processDepartures(rawData, TARGET_DESTINATION, DEPARTURES_TO_SHOW);
-         // Should be filtered out by the filter(dep => dep !== null && dep.journeyId !== undefined)
-         expect(result).toHaveLength(1);
-         expect(result[0]).toBe('101 Test Destination 10 min');
+        const result = processDepartures(rawData, TARGET_DESTINATION, DEPARTURES_TO_SHOW);
+        expect(result).toHaveLength(2); // 100, 101 (102 filtered)
+        expect(result).toEqual([
+            `100 ${TARGET_DESTINATION} 5 min`,
+            `101 ${TARGET_DESTINATION} 10 min`
+        ]);
     });
 
-    it('should handle departures where journey property itself is null or undefined', () => {
+     it('should handle stop_point.designation being null or undefined gracefully (will not be filtered as B)', () => {
         const rawData = [
-            { // Valid structure but journey is null
-               journey: null,
-               destination: TARGET_DESTINATION,
-               expected: new Date(Date.now() + 7 * 60000).toISOString(),
-               line: { designation: '102' }
-           },
-            { // Valid structure but journey is undefined
-                // journey: undefined, (implicitly undefined)
+            createMockDeparture(1, TARGET_DESTINATION, '100', '5 min', 'Platform A'),
+            {
                 destination: TARGET_DESTINATION,
-                expected: new Date(Date.now() + 8 * 60000).toISOString(),
-                line: { designation: '103' }
+                line: { designation: '101' },
+                display: '10 min',
+                stop_point: { designation: null } // designation is null
             },
-           createMockDeparture(3, TARGET_DESTINATION, '101', 12) // A valid departure
-       ];
-        const result = processDepartures(rawData, TARGET_DESTINATION, DEPARTURES_TO_SHOW);
-        // Departures with null/undefined journey should be filtered out by `dep.journeyId !== undefined`
-        expect(result).toHaveLength(1);
-        expect(result[0]).toBe('101 Test Destination 12 min');
-   });
+            {
+                destination: TARGET_DESTINATION,
+                line: { designation: '102' },
+                display: '12 min',
+                stop_point: { designation: undefined } // designation is undefined
+            },
+            createMockDeparture(4, TARGET_DESTINATION, '103', '15 min', 'B') // This one should be filtered
+        ];
+        const result = processDepartures(rawData, TARGET_DESTINATION, 4);
+        expect(result).toHaveLength(3); 
+        expect(result).toEqual([
+            `100 ${TARGET_DESTINATION} 5 min`,
+            `101 ${TARGET_DESTINATION} 10 min`,
+            `102 ${TARGET_DESTINATION} 12 min`
+        ]);
+        expect(result).not.toContain(`103 ${TARGET_DESTINATION} 15 min`);
+    });
+
 }); 
