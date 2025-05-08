@@ -73,13 +73,13 @@ def main():
     # selected_font = CP437_FONT # Use font object directly
     # print(f"Using font: CP437_FONT")
     try:
-        font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
+        font_path = "/usr/share/fonts/truetype/unifont/unifont.ttf"
         # Using a common size for 8-pixel high matrices. Adjust if needed.
         selected_font = ImageFont.truetype(font_path, 8)
         print(f"Using font: {font_path} with size 8")
     except IOError:
-        print(f"ERROR: Font file not found at {font_path}. Please install fonts-dejavu.", file=sys.stderr)
-        print("Attempting to run: sudo apt-get install -y fonts-dejavu", file=sys.stderr)
+        print(f"ERROR: Font file not found at {font_path}. Please install fonts-unifont.", file=sys.stderr)
+        print("Attempting to run: sudo apt-get install -y fonts-unifont", file=sys.stderr)
         # Optionally, you could try to run the install command here, but it's better to do it separately.
         sys.exit(1)
     except Exception as e:
@@ -141,7 +141,7 @@ def main():
 
                 # Draw the frame
                 with canvas(device) as draw:
-                    draw.text((draw_x, 0), display_message, font=selected_font, fill="white")
+                    draw.text((draw_x, -1), display_message, font=selected_font, fill="white")
 
                 # Check if scroll is complete (message moved off left edge)
                 if draw_x < -message_pixel_width:
