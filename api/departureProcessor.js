@@ -27,7 +27,51 @@ function calculateTimeDiffInMinutes(timeStr) {
 }
 
 /**
+ * Generates a detailed list of processed departure objects.
+ * This is intended for internal use or for consumers needing full departure details.
+ *
+ * @param {Array<object>} rawDepartures - The raw departures array from the API.
+ * @param {string} destinationName - The target destination name to filter by.
+ * @returns {Array<object>} An array of detailed, sorted departure objects.
+ */
+function generateDetailedDepartureList(rawDepartures, destinationName) {
+    if (!rawDepartures || !Array.isArray(rawDepartures) || rawDepartures.length === 0) {
+        return [];
+    }
+
+    return rawDepartures
+        .filter(dep => dep.destination?.includes(destinationName) && dep.stop_point?.designation === 'B')
+        .map(dep => {
+            const timeToUse = dep.expected || dep.scheduled;
+            const timeLeftMinutes = calculateTimeDiffInMinutes(timeToUse);
+
+            if (timeLeftMinutes === null) {
+                return null;
+            }
+
+            const lineDesignation = dep.line?.designation;
+            if (!lineDesignation) {
+                return null;
+            }
+            
+            const displayTime = timeLeftMinutes === 0 ? 'Nu' : `${timeLeftMinutes} min`;
+
+            return {
+                lineDesignation,
+                destination: dep.destination,
+                displayTime,
+                timeLeftMinutes,
+                expectedOrScheduledTimeISO: timeToUse,
+                displayString: `${lineDesignation} ${dep.destination} ${displayTime}`
+            };
+        })
+        .filter(depObjOrNull => depObjOrNull !== null)
+        .sort((a, b) => a.timeLeftMinutes - b.timeLeftMinutes);
+}
+
+/**
  * Processes raw departure data: filters, formats, sorts, and limits the number of results.
+ * Returns an array of formatted departure strings for display.
  *
  * @param {Array<object>} rawDepartures - The raw departures array from the API.
  * @param {string} destinationName - The target destination name to filter by.
@@ -35,45 +79,15 @@ function calculateTimeDiffInMinutes(timeStr) {
  * @returns {Array<string>} An array of formatted departure strings.
  */
 function processDepartures(rawDepartures, destinationName, departuresToShow) {
-    if (!rawDepartures || !Array.isArray(rawDepartures) || rawDepartures.length === 0) {
-        return [];
-    }
+    const allProcessedDepartures = generateDetailedDepartureList(rawDepartures, destinationName);
 
-    const processedDepartures = rawDepartures
-        .filter(dep => dep.destination?.includes(destinationName) && dep.stop_point?.designation === 'B')
-        .map(dep => {
-            const timeToUse = dep.expected || dep.scheduled;
-            const timeLeftMinutes = calculateTimeDiffInMinutes(timeToUse);
-
-            if (timeLeftMinutes === null) { // Handles past departures or invalid time
-                return null;
-            }
-
-            const lineDesignation = dep.line?.designation;
-            if (!lineDesignation) { // Filter out if line designation is missing
-                return null;
-            }
-            
-            // dep.destination is assumed valid from the initial filter
-            // dep.display from API is no longer used for time display
-
-            const displayTime = timeLeftMinutes === 0 ? 'Nu' : `${timeLeftMinutes} min`;
-
-            return {
-                lineDesignation, // Keep for sorting if needed, or just for display string
-                destination: dep.destination,
-                displayTime,
-                timeLeftMinutes, // For sorting
-                displayString: `${lineDesignation} ${dep.destination} ${displayTime}`
-            };
-        })
-        .filter(depObjOrNull => depObjOrNull !== null) // Filter out items that were marked as null
-        .sort((a, b) => a.timeLeftMinutes - b.timeLeftMinutes); // Sort by time remaining
-
-    // Return the first 'departuresToShow' items after mapping and sorting
-    return processedDepartures.slice(0, departuresToShow).map(dep => dep.displayString);
+    // Return the first 'departuresToShow' items after mapping to displayString
+    return allProcessedDepartures
+        .slice(0, departuresToShow)
+        .map(dep => dep.displayString);
 }
 
 module.exports = {
-    processDepartures
+    processDepartures,
+    generateDetailedDepartureList // Export for slApiService
 }; 
