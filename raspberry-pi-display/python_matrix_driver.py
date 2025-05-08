@@ -6,15 +6,13 @@ import traceback # For detailed error logging
 import select  # For non-blocking stdin read
 import re
 
-# Import PIL for TTF font support
-from PIL import ImageFont
-
 # Import luma libraries needed for basic display
 from luma.led_matrix.device import max7219
 from luma.core.interface.serial import spi, noop
 from luma.core.render import canvas
-# Import for legacy textsize (fallback in get_message_width)
-from luma.core.legacy import textsize
+# RE-ADD legacy font and text imports
+from luma.core.legacy.font import CP437_FONT
+from luma.core.legacy import text, textsize
 
 # --- Constants ---
 SCROLL_SPEED_PPS = 15 # Pixels per second
@@ -29,22 +27,16 @@ def parse_time_string(message):
     return None
 
 def get_message_width(message, font):
-    """Calculate width using PIL font metrics."""
+    """Calculate width using legacy textsize function."""
     try:
         if not message:
             return 0
-        if hasattr(font, 'getbbox'): # Check if it's a PIL ImageFont
-            # getbbox returns (left, top, right, bottom) bounding box
-            left, top, right, bottom = font.getbbox(message)
-            return right - left # width is right - left
-        else:
-            # Fallback for any non-PIL font or if getbbox is not available
-            print(f"Warning: Font does not have getbbox. Using legacy textsize as fallback.", file=sys.stderr)
-            width, _ = textsize(message, font=font)
-            return width
+        # REVERT to simple textsize call for CP437_FONT
+        width, _ = textsize(message, font=font)
+        return width
     except Exception as e:
-        print(f"Warning: Could not calculate text width for '{message}': {e}. Estimating.", file=sys.stderr)
-        return len(message or "") * 6 # Rough estimation
+        print(f"Warning: Could not calculate legacy text width for '{message}': {e}. Estimating.", file=sys.stderr)
+        return len(message or "") * 6
 
 def main():
     # Remove hardcoded message
@@ -69,17 +61,20 @@ def main():
         sys.exit(1)
 
     # --- Font Selection ---
-    try:
-        font_path = "/usr/share/fonts/truetype/terminus/TerminusTTF-4.46.0.ttf"
-        selected_font = ImageFont.truetype(font_path, 8)
-        print(f"Using font: {font_path} with size 8")
-    except IOError:
-        print(f"ERROR: Font file not found at {font_path}. Please ensure fonts-terminus is installed.", file=sys.stderr)
-        sys.exit(1)
-    except Exception as e:
-        print(f"ERROR: Loading font {font_path}: {e}", file=sys.stderr)
-        traceback.print_exc(file=sys.stderr)
-        sys.exit(1)
+    # REMOVE Terminus font loading block
+    # try:
+    #     font_path = "/usr/share/fonts/truetype/terminus/TerminusTTF-4.46.0.ttf"
+    #     selected_font = ImageFont.truetype(font_path, 8)
+    #     print(f"Using font: {font_path} with size 8")
+    # except IOError:
+    #     print(f"ERROR: Font file not found at {font_path}. Please ensure fonts-terminus is installed.", file=sys.stderr)
+    #     sys.exit(1)
+    # except Exception as e:
+    #     print(f"ERROR: Loading font {font_path}: {e}", file=sys.stderr)
+    #     traceback.print_exc(file=sys.stderr)
+    #     sys.exit(1)
+    selected_font = CP437_FONT # <--- REVERT to CP437_FONT
+    print(f"Using font: CP437_FONT")
 
     # Set brightness (contrast)
     try:
@@ -99,8 +94,11 @@ def main():
                 print("Stdin closed (EOF received). Exiting.")
                 break # Exit loop on EOF
 
-            # REMOVE Swedish character replacement
-            display_message = line.strip()
+            # RE-ENABLE Swedish character replacement
+            # display_message = line.strip()
+            display_message = line.strip().replace('Ö', 'O').replace('ö', 'o') \
+                                          .replace('Ä', 'A').replace('ä', 'a') \
+                                          .replace('Å', 'A').replace('å', 'a') # <--- RESTORE character replacement
             print(f"Received message: '{display_message}'")
 
             # If message is empty, clear display and signal DONE
@@ -132,14 +130,14 @@ def main():
 
                 # Draw the frame
                 with canvas(device) as draw:
-                    draw.text((draw_x, 0), display_message, font=selected_font, fill="white")
+                    # REVERT to legacy text() and y=0
+                    text(draw, (draw_x, 0), display_message, font=selected_font, fill="white")
 
                 # Check if scroll is complete (message moved off left edge)
                 if draw_x < -message_pixel_width:
                     print(f"Scroll complete (draw_x={draw_x}).")
                     break # Exit the nested scroll loop
                 
-                # Small sleep to prevent high CPU usage
                 time.sleep(0.01) 
             # === End of Nested Scroll Loop ===
 
