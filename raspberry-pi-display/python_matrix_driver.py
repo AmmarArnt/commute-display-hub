@@ -73,7 +73,7 @@ def main():
     # selected_font = CP437_FONT # Use font object directly
     # print(f"Using font: CP437_FONT")
     try:
-        font_path = "/usr/share/fonts/truetype/unifont/unifont.ttf"
+        font_path = "/usr/share/fonts/truetype/unifont/unifont_sample.ttf"
         # Using a common size for 8-pixel high matrices. Adjust if needed.
         selected_font = ImageFont.truetype(font_path, 8)
         print(f"Using font: {font_path} with size 8")
