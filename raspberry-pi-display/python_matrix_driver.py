@@ -6,12 +6,13 @@ import traceback # For detailed error logging
 import select  # For non-blocking stdin read
 import re
 
+# Import PIL for TTF font support
+from PIL import ImageFont
+
 # Import luma libraries needed for basic display
 from luma.led_matrix.device import max7219
 from luma.core.interface.serial import spi, noop
 from luma.core.render import canvas
-# Import only the font data structure
-from luma.core.legacy.font import CP437_FONT
 # Import legacy text function AND textsize function
 from luma.core.legacy import text, textsize
 
@@ -32,8 +33,16 @@ def get_message_width(message, font):
     try:
         if not message:
             return 0
-        width, _ = textsize(message, font=font)
-        return width
+        # For TTF fonts, textsize might not be available or work the same way.
+        # We'll use a more robust way if using PIL ImageFont directly.
+        # This function might need further adjustment depending on how text rendering is done
+        # with the new font object. Luma's legacy text() might handle PIL fonts.
+        if hasattr(font, 'getbbox'): # Check if it's a PIL ImageFont
+            left, top, right, bottom = font.getbbox(message)
+            return right - left
+        else: # Fallback for other font types or if legacy textsize is still used
+            width, _ = textsize(message, font=font)
+            return width
     except Exception as e:
         print(f"Warning: Could not calculate legacy text width for '{message}': {e}. Estimating.", file=sys.stderr)
         return len(message or "") * 6
@@ -61,8 +70,22 @@ def main():
         sys.exit(1)
 
     # --- Font Selection ---
-    selected_font = CP437_FONT # Use font object directly
-    print(f"Using font: CP437_FONT")
+    # selected_font = CP437_FONT # Use font object directly
+    # print(f"Using font: CP437_FONT")
+    try:
+        font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
+        # Using a common size for 8-pixel high matrices. Adjust if needed.
+        selected_font = ImageFont.truetype(font_path, 8)
+        print(f"Using font: {font_path} with size 8")
+    except IOError:
+        print(f"ERROR: Font file not found at {font_path}. Please install fonts-dejavu.", file=sys.stderr)
+        print("Attempting to run: sudo apt-get install -y fonts-dejavu", file=sys.stderr)
+        # Optionally, you could try to run the install command here, but it's better to do it separately.
+        sys.exit(1)
+    except Exception as e:
+        print(f"ERROR: Loading font {font_path}: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        sys.exit(1)
 
     # Set brightness (contrast)
     try:
@@ -83,9 +106,10 @@ def main():
                 break # Exit loop on EOF
 
             # RE-ADD REPLACEMENT
-            display_message = line.strip().replace('Ö', 'O').replace('ö', 'o') \
-                                          .replace('Ä', 'A').replace('ä', 'a') \
-                                          .replace('Å', 'A').replace('å', 'a')
+            # display_message = line.strip().replace('Ö', 'O').replace('ö', 'o') \
+            #                               .replace('Ä', 'A').replace('ä', 'a') \
+            #                               .replace('Å', 'A').replace('å', 'a')
+            display_message = line.strip() # No more replacement needed
             print(f"Received message: '{display_message}'")
 
             # If message is empty, clear display and signal DONE
