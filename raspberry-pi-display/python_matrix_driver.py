@@ -96,9 +96,19 @@ def main():
 
             # RE-ENABLE Swedish character replacement
             # display_message = line.strip()
-            display_message = line.strip().replace('Ö', 'O').replace('ö', 'o') \
-                                          .replace('Ä', 'A').replace('ä', 'a') \
-                                          .replace('Å', 'A').replace('å', 'a') # <--- RESTORE character replacement
+            # display_message = line.strip().replace('Ö', 'O').replace('ö', 'o') \ 
+            #                               .replace('Ä', 'A').replace('ä', 'a') \ 
+            #                               .replace('Å', 'A').replace('å', 'a') # <--- OLD character replacement
+
+            display_message = line.strip()
+            # Map Swedish Unicode characters to their respective CP437 codepoint characters
+            display_message = display_message.replace('Å', chr(143)) # Å -> CP437 code 143
+            display_message = display_message.replace('Ä', chr(142)) # Ä -> CP437 code 142
+            display_message = display_message.replace('Ö', chr(153)) # Ö -> CP437 code 153
+            display_message = display_message.replace('å', chr(134)) # å -> CP437 code 134
+            display_message = display_message.replace('ä', chr(132)) # ä -> CP437 code 132
+            display_message = display_message.replace('ö', chr(148)) # ö -> CP437 code 148
+
             print(f"Received message: '{display_message}'")
 
             # If message is empty, clear display and signal DONE
