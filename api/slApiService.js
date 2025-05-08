@@ -4,6 +4,7 @@ const { generateDetailedDepartureList } = require('./departureProcessor');
 // Module-scoped state variables
 let currentServiceUserAgent = null;
 let forceFreshAgentForNextRequest = false;
+let lowDepartureCountSinceTimestamp = null; // Added for 2-minute delay logic
 
 /**
  * Fetches departure data from the SL Transport API.
@@ -29,9 +30,11 @@ async function fetchDepartures(baseUrl, siteId, lineNumber, destinationName) {
     if (currentServiceUserAgent === null) {
         currentServiceUserAgent = 'agent/' + now;
         forceFreshAgentForNextRequest = false;
-    } else if (forceFreshAgentForNextRequest) {
+        lowDepartureCountSinceTimestamp = null; // Reset timer state
+    } else if (forceFreshAgentForNextRequest) { // This flag is true if a refresh was decided in the *previous* call
         currentServiceUserAgent = 'agent/' + now;
-        forceFreshAgentForNextRequest = false;
+        forceFreshAgentForNextRequest = false; // Reset the flag after using it
+        lowDepartureCountSinceTimestamp = null; // Reset timer state after refresh
     }
 
     const headers = {
@@ -41,7 +44,6 @@ async function fetchDepartures(baseUrl, siteId, lineNumber, destinationName) {
         'Expires': '0'
     };
 
-    console.log(`(SL Service) Fetching departures from: ${apiUrl} with params:`, params, "and headers:", headers);
 
     let rawApiResponseData;
     try {
@@ -60,35 +62,51 @@ async function fetchDepartures(baseUrl, siteId, lineNumber, destinationName) {
     }
 
     // Analyze response to decide if the *next* request needs a fresh agent
-    let shouldForceFreshAgentForSubsequentCall = false;
+    let decideToForceRefreshForNextCall = false;
+
     if (!rawApiResponseData || !rawApiResponseData.departures || rawApiResponseData.departures.length === 0) {
-        shouldForceFreshAgentForSubsequentCall = true;
+        decideToForceRefreshForNextCall = true;
+        lowDepartureCountSinceTimestamp = null; // Reset timer state, immediate refresh preferred
     } else {
-        // Use a large number for departuresToShow for internal analysis to get all relevant departures
-        // Call the new function generateDetailedDepartureList for internal analysis
         const relevantDepartures = generateDetailedDepartureList(
             rawApiResponseData.departures,
             destinationName
         );
 
         if (!relevantDepartures || relevantDepartures.length === 0) {
-            shouldForceFreshAgentForSubsequentCall = true;
+            decideToForceRefreshForNextCall = true;
+            lowDepartureCountSinceTimestamp = null; // Reset timer state, immediate refresh preferred
         } else if (relevantDepartures.length < 3) {
-            shouldForceFreshAgentForSubsequentCall = true;
-        } else {
+            if (lowDepartureCountSinceTimestamp === null) {
+                lowDepartureCountSinceTimestamp = Date.now();
+                // Don't set decideToForceRefreshForNextCall = true yet, wait for timer
+            } else {
+                const threeMinutesInMs = 3 * 60 * 1000; // Changed from 2 minutes
+                const timeElapsed = Date.now() - lowDepartureCountSinceTimestamp;
+                if (timeElapsed >= threeMinutesInMs) {
+                    decideToForceRefreshForNextCall = true;
+                    // lowDepartureCountSinceTimestamp will be reset on the next call when the agent is actually refreshed
+                } else {
+                    // decideToForceRefreshForNextCall remains false, respecting timer (No log needed here for quiet operation)
+                }
+            }
+        } else { // 3 or more relevant departures
+            lowDepartureCountSinceTimestamp = null; // Reset timer as count is now sufficient
+
+            // Still check if the closest departure is gone, which should trigger an immediate refresh
             const closestDeparture = relevantDepartures[0];
             if (closestDeparture.expectedOrScheduledTimeISO) {
                  const closestDepartureExpectedTime = new Date(closestDeparture.expectedOrScheduledTimeISO);
                  if (now >= closestDepartureExpectedTime.getTime()) {
-                     shouldForceFreshAgentForSubsequentCall = true;
+                     decideToForceRefreshForNextCall = true;
                  }
             } else {
                  console.warn('(SL Service) Closest departure missing expectedOrScheduledTimeISO. Flagging for fresh agent.');
-                 shouldForceFreshAgentForSubsequentCall = true;
+                 decideToForceRefreshForNextCall = true;
             }
         }
     }
-    forceFreshAgentForNextRequest = shouldForceFreshAgentForSubsequentCall;
+    forceFreshAgentForNextRequest = decideToForceRefreshForNextCall; // This sets the flag for the *next* call
 
     // Return the raw API response to the caller
     return rawApiResponseData;

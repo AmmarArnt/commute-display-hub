@@ -17,7 +17,7 @@ app.get('/departures', async (req, res) => {
             config.api.baseUrl,
             config.station.siteId,
             config.filter.lineNumber,
-            config.filter.maxDeparturesToFetch
+            config.filter.destinationName
         );
 
         if (!apiData || !apiData.departures) {

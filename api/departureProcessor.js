@@ -39,8 +39,14 @@ function generateDetailedDepartureList(rawDepartures, destinationName) {
         return [];
     }
 
-    return rawDepartures
-        .filter(dep => dep.destination?.includes(destinationName) && dep.stop_point?.designation === 'B')
+    const initialFilteredDepartures = rawDepartures
+        .filter(dep => {
+            const destinationMatch = dep.destination?.includes(destinationName);
+            const stopPointMatch = dep.stop_point?.designation === 'B';
+            return destinationMatch && stopPointMatch;
+        });
+
+    const mappedDepartures = initialFilteredDepartures
         .map(dep => {
             const timeToUse = dep.expected || dep.scheduled;
             const timeLeftMinutes = calculateTimeDiffInMinutes(timeToUse);
@@ -64,7 +70,9 @@ function generateDetailedDepartureList(rawDepartures, destinationName) {
                 expectedOrScheduledTimeISO: timeToUse,
                 displayString: `${lineDesignation} ${dep.destination} ${displayTime}`
             };
-        })
+        });
+
+    return mappedDepartures
         .filter(depObjOrNull => depObjOrNull !== null)
         .sort((a, b) => a.timeLeftMinutes - b.timeLeftMinutes);
 }
