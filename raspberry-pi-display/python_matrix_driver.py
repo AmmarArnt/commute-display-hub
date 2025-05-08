@@ -13,8 +13,8 @@ from PIL import ImageFont
 from luma.led_matrix.device import max7219
 from luma.core.interface.serial import spi, noop
 from luma.core.render import canvas
-# Import legacy text function AND textsize function
-from luma.core.legacy import text, textsize
+# Import legacy textsize function (text function is no longer used)
+from luma.core.legacy import textsize # Removed text, kept textsize
 
 # --- Constants ---
 SCROLL_SPEED_PPS = 15 # Pixels per second
@@ -141,7 +141,7 @@ def main():
 
                 # Draw the frame
                 with canvas(device) as draw:
-                    text(draw, (draw_x, 0), display_message, font=selected_font, fill="white")
+                    draw.text((draw_x, 0), display_message, font=selected_font, fill="white")
 
                 # Check if scroll is complete (message moved off left edge)
                 if draw_x < -message_pixel_width:
