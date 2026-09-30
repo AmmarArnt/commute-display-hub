@@ -120,3 +120,6 @@ dist
 Thumbs.db 
 
 assets/
+
+# Generated GTFS timetable (yarn gtfs:update)
+api/data/

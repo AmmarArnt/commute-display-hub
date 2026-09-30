@@ -5,7 +5,9 @@
   "main": "api/server.js",
   "scripts": {
     "start": "node api/start.js",
-    "test": "jest --silent"
+    "test": "jest --silent",
+    "gtfs:stops": "node api/scripts/gtfs-schedule.js stops",
+    "gtfs:update": "node api/scripts/gtfs-schedule.js update"
   },
   "keywords": [
     "trafiklab",
@@ -19,6 +21,7 @@
     "axios": "^1.8.4",
     "dotenv": "^16.4.7",
     "express": "^4.19.2",
+    "gtfs-realtime-bindings": "^2.2.0",
     "rpi-led-matrix": "^1.15.0"
   },
   "devDependencies": {

@@ -94,4 +94,60 @@ describe('API Configuration Loading', () => {
              expect(error.message).toContain('FILTER_DESTINATION_NAME cannot be empty');
         }
     });
+
+    describe('DATA_SOURCE=gtfs', () => {
+        const gtfsEnv = {
+            DATA_SOURCE: 'gtfs',
+            FILTER_LINE_NUMBER: '134',
+            FILTER_DESTINATION_NAME: '"Östbergahöjden"',
+            FILTER_DEPARTURES_TO_SHOW: '3',
+            GTFS_RT_API_KEY: 'abc'
+        };
+        const clean = () => {
+            // Start from an env without the SL-only variables to prove they are not required.
+            const env = { ...ORIGINAL_ENV };
+            ['API_BASE_URL', 'STATION_SITE_ID', 'FILTER_MAX_DEPARTURES_TO_FETCH', 'DATA_SOURCE', 'GTFS_RT_API_KEY',
+                'GTFS_POLL_INTERVAL_MS', 'GTFS_MAX_STALE_MS', 'GTFS_IDLE_MS', 'GTFS_SCHEDULE_PATH'].forEach((k) => delete env[k]);
+            return env;
+        };
+        const load = (extra = {}) => {
+            setupTest({ ...clean(), ...gtfsEnv, ...extra });
+            process.env = { ...clean(), ...gtfsEnv, ...extra };
+            return require('../config').loadAndValidateConfig();
+        };
+
+        it('does not require the SL API variables', () => {
+            const config = load();
+            expect(config.dataSource).toBe('gtfs');
+            expect(config.gtfs.realtimeKey).toBe('abc');
+            expect(config.gtfs.pollIntervalMs).toBe(60000);
+            expect(config.gtfs.maxStaleMs).toBe(600000);
+            expect(config.gtfs.schedulePath).toMatch(/api[\\/]data[\\/]schedule\.json$/);
+            expect(config.filter.destinationName).toBe('Östbergahöjden');
+        });
+
+        it('requires the realtime key', () => {
+            const env = { ...clean(), ...gtfsEnv };
+            delete env.GTFS_RT_API_KEY;
+            setupTest(env);
+            process.env = env;
+            expect(() => require('../config').loadAndValidateConfig()).toThrow('Missing required environment variables');
+            expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('- GTFS_RT_API_KEY'));
+        });
+
+        it('rejects a poll interval below the feed refresh rate', () => {
+            expect(() => load({ GTFS_POLL_INTERVAL_MS: '5000' })).toThrow('at least 15000');
+        });
+
+        it('rejects non-numeric tuning values', () => {
+            expect(() => load({ GTFS_MAX_STALE_MS: 'soon' })).toThrow('GTFS_MAX_STALE_MS');
+        });
+    });
+
+    it('defaults to the SL API source and rejects unknown sources', () => {
+        setupTest(mockRequiredEnv);
+        expect(require('../config').loadAndValidateConfig().dataSource).toBe('sl');
+        setupTest({ ...mockRequiredEnv, DATA_SOURCE: 'nope' });
+        expect(() => require('../config').loadAndValidateConfig()).toThrow('DATA_SOURCE must be');
+    });
 }); 
