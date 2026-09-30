@@ -19,7 +19,8 @@ function tzOffsetMs(epochMs, tz) {
     });
     const p = {};
     for (const part of dtf.formatToParts(new Date(epochMs))) p[part.type] = part.value;
-    const asUtc = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
+    // Some ICU builds report midnight as "24" even with h23.
+    const asUtc = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute, +p.second);
     return asUtc - Math.floor(epochMs / 1000) * 1000;
 }
 
@@ -32,8 +33,12 @@ function zonedToEpoch(y, mo, d, h, mi, s, tz = DEFAULT_TZ) {
 
 // 'YYYYMMDD' for the local calendar date of an instant.
 function localDateString(epochMs, tz = DEFAULT_TZ) {
-    const dtf = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' });
-    return dtf.format(new Date(epochMs)).replace(/-/g, '');
+    // Build the date from parts instead of relying on a locale's date format: builds of Node with
+    // limited ICU data silently fall back from en-CA and produce e.g. "09/30/2026".
+    const dtf = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' });
+    const p = {};
+    for (const part of dtf.formatToParts(new Date(epochMs))) p[part.type] = part.value;
+    return `${p.year}${p.month}${p.day}`;
 }
 
 function addDays(dateStr, n) {
