@@ -50,3 +50,14 @@ test('CSV: BOM and CRLF are handled', async () => {
     for await (const r of tableRows(lines)) rows.push(r);
     assert.deepEqual(rows, [{ id: '1', name: 'A, B' }, { id: '2', name: 'C' }]);
 });
+
+test('localDateString does not depend on the en-CA locale being available', () => {
+    const Real = Intl.DateTimeFormat;
+    const spy = jest.spyOn(Intl, 'DateTimeFormat').mockImplementation((loc, opts) => new Real(loc === 'en-CA' ? 'en-US' : loc, opts));
+    try {
+        assert.equal(T.localDateString(Date.UTC(2026, 8, 30, 15, 39)), '20260930');
+        assert.equal(T.localDateString(Date.UTC(2026, 8, 30, 22, 30)), '20261001'); // already Oct 1 in Stockholm
+    } finally {
+        spy.mockRestore();
+    }
+});
