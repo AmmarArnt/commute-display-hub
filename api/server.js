@@ -10,8 +10,34 @@ const config = loadAndValidateConfig();
 
 const app = express();
 
+// GTFS mode: departures come from the Trafiklab GTFS Regional realtime feed (polled in the
+// background) merged with a locally built timetable. The response format is identical.
+let gtfsService = null;
+if (config.dataSource === 'gtfs') {
+    const { GtfsService } = require('./gtfs/service');
+    gtfsService = GtfsService.create(config.gtfs, config.filter);
+    console.log(`Data source: GTFS Regional (line ${gtfsService.slice.line}, ${Object.keys(gtfsService.slice.trips).length} scheduled trips)`);
+}
+
+app.get('/health', (req, res) => {
+    if (gtfsService) return res.json(gtfsService.health());
+    res.json({ dataSource: 'sl' });
+});
+
 // Main route handler
 app.get('/departures', async (req, res) => {
+    if (gtfsService) {
+        try {
+            const { departures, source } = gtfsService.getDepartures();
+            res.set('X-Data-Source', source);
+            console.log(`Departures (${source}):`, departures);
+            return res.json(departures);
+        } catch (error) {
+            console.error('Internal Server Error (GTFS):', error);
+            return res.status(500).json({ error: 'Internal server error processing departures' });
+        }
+    }
+
     try {
         const apiData = await slApiService.fetchDepartures(
             config.api.baseUrl,
